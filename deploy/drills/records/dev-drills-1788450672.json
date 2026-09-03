@@ -1,0 +1,63 @@
+{
+  "scenario": "preview_drills_dev",
+  "environment": "dev_local_sqlite",
+  "timestamp": 1788450672.9635594,
+  "all_passed": true,
+  "drills": [
+    {
+      "name": "D1_api_worker_restart_resilience",
+      "passed": true,
+      "detail": {
+        "thread_id_preserved": true,
+        "session_read_after_restart": 200,
+        "messages_after_restart": 200
+      }
+    },
+    {
+      "name": "D2_db_backup_restore",
+      "passed": true,
+      "detail": {
+        "rpo_seconds": 0.0,
+        "operation_id_preserved": true,
+        "bytes_backup": 90112
+      }
+    },
+    {
+      "name": "D3_approval_only_after_approval",
+      "passed": true,
+      "detail": {
+        "no_exec_before_approval": true,
+        "first_decision_status": "executed",
+        "second_decision_operation_id": "ddeeb3cd-26a3-44d0-ab84-63f67fc290ea"
+      }
+    },
+    {
+      "name": "D4_sse_disconnect_resume",
+      "passed": true,
+      "detail": {
+        "stream_id": "bad0debb-9260-4ead-a2eb-2ed2cba5c136",
+        "resume_event_count": 10
+      }
+    },
+    {
+      "name": "D5_concurrent_duplicate_submission",
+      "passed": true,
+      "detail": {
+        "stream_id_1": "7c9a5920-c3ad-42ea-b75b-bd65321bb55e",
+        "stream_id_2": "7c9a5920-c3ad-42ea-b75b-bd65321bb55e",
+        "same_stream": true
+      }
+    },
+    {
+      "name": "D6_sandbox_reconciliation",
+      "passed": true,
+      "detail": {
+        "scanned": 1,
+        "reconciled": 0,
+        "mis_matched": 1,
+        "human_handoff": 0,
+        "final_status": "mismatched"
+      }
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "thread_id": "b422b17c-8f52-40ac-bce1-b16489c32445",
+  "steps": [
+    {
+      "step": "query_policy",
+      "events": 27,
+      "final": "自签收之日起 7 天内，商品未经使用且包装完好可申请退货。生鲜、定制类不支持无理由退货。退货需买家先填写退货申请。"
+    },
+    {
+      "step": "query_order",
+      "final": "订单 ORD-001 查询结果：状态:delivered 金额:299.0 商品:无线耳机(x1)"
+    },
+    {
+      "step": "request_refund",
+      "approval_id": "dbcf05f1-b02b-4ec8-b213-f57b8b6e4c68",
+      "operation_id": "7425c689-cf91-497b-aa88-25918730deca"
+    },
+    {
+      "step": "approve_refund",
+      "decision": {
+        "operation_id": "7425c689-cf91-497b-aa88-25918730deca",
+        "status": "executed",
+        "message": "审批已通过，已执行。"
+      }
+    },
+    {
+      "step": "query_operation",
+      "operation": {
+        "operation_id": "7425c689-cf91-497b-aa88-25918730deca",
+        "thread_id": "b422b17c-8f52-40ac-bce1-b16489c32445",
+        "order_id": "ORD-001",
+        "pending_action": "refund",
+        "status": "executed",
+        "idempotency_key": "oprefund:TENANT-A:ORD-001:E2E-REFUND",
+        "created_at": 1788453929.4724853,
+        "result": {
+          "execution_status": "confirmed",
+          "mode": "shadow",
+          "execution_id": "925c2b98-437e-4448-ba31-d21e854a4056",
+          "simulated": true,
+          "receipt": {
+            "external_txn_id": "txn-c929ed6367bb1eeb",
+            "operation_id": "7425c689-cf91-497b-aa88-25918730deca",
+            "order_id": "ORD-001",
+            "amount": 299.0,
+            "status": "succeeded",
+            "simulated": true,
+            "mode": "shadow",
+            "ts": 1788453929.4781585
+          },
+          "message": "退款/退货/改址已在 shadow 模式下生成模拟回执。"
+        }
+      }
+    },
+    {
+      "step": "session_history",
+      "message_count": 3
+    }
+  ]
+}

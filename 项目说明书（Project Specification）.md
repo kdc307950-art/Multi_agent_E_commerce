@@ -96,6 +96,8 @@ after-sales-agent/
 | :-- | :-- | :-- | :-- |
 | `tenant_id` | `str` | 服务端租户作用域 | 由认证上下文注入，不接受模型/客户端覆盖 |
 | `user_id` / `order_id` | `str` / `Optional[str]` | 当前主体与订单 | 查询前同时匹配 `tenant_id` |
+| `thread_id` | `Optional[str]` | 会话线程（服务端签发） | 服务端注入；HTTP 层校验归属，不用于推断身份 |
+| `client_request_id` | `Optional[str]` | start 请求去重 ID | 服务端注入；用于敏感写幂等键与 start 原子去重 |
 | `messages` | `list[dict]` | 对话历史 | 采用追加语义，不覆盖历史 |
 | `intent` / `confidence` | `Optional[str]` / `Optional[float]` | 意图分类 | 退款、退货申请、退货地址变更保持独立 |
 | `retrieved_docs` / `rewritten_query` | `list[dict]` / `Optional[str]` | RAG 检索中间态 | 文档召回必须带租户过滤 |

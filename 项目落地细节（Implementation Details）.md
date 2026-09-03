@@ -79,7 +79,7 @@ psycopg[binary]>=3.1.0     # PostgresSaver / 业务库
 psycopg-pool>=3.1.0         # 连接池
 ```
 
-> **LangGraph 版本与 API 口径**：本项目以 `langgraph==1.2.11`、`langgraph-checkpoint-postgres==3.1.2` 作为 2026-09-03 的候选基线。官方事件流 API 使用 `astream_events(..., version="v3")`；不要把旧版 `v2` 示例混入该 API。`stream/astream` 的 stream-mode API 与事件流 API 不是同一个版本参数，必须按实际调用面分别核对。当前机器未发现可用 Python 解释器，因此上述版本仍标记为“候选基线/待本项目安装验收”，不得宣称已兼容或生产可用。
+> **LangGraph 版本与 API 口径（已在本地安装验收）**：本项目以 `langgraph==1.2.11`、`langgraph-checkpoint-postgres==3.1.2` 作为 2026-09-03 基准。官方事件流 API（`astream_events`）的 `version` 参数只支持 `v1`（已弃用）与 `v2`，**不存在 `v3`**——因此项目统一使用 `astream_events(..., version="v2")`，不要混入旧版 `v3` 示例；`stream/astream` 的 stream-mode API 与事件流 API 不是同一个版本参数，必须按实际调用面分别核对。已在本机 CPython 3.12.9 安装并完成导入/最小运行验收：核心 API（`StateGraph`/`START`/`END`/`Command`/`interrupt`/`add_messages`）可用；`SqliteSaver` 需额外装 `langgraph-checkpoint-sqlite` 且 `from_conn_string` 返回上下文管理器（用 `with ... as saver:`）；`AsyncPostgresSaver` 一次性建表用 `await saver.setup()`（**无 `asetup`**）。生产 RLS/多租户接入仍待 Docker/预发布验证，未验证处不得宣称已兼容或生产可用。
 
 > **队列口径**：统一 Celery + Redis。**不使用 BullMQ/Node**，以保持全 Python 技术栈、与 LangGraph/FastAPI/CrewAI 同生态。
 
@@ -273,7 +273,7 @@ def test_full_return_flow():
 ```yaml
 services:
   postgres:
-    image: postgres:16
+    image: postgres:17-alpine
     environment:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=pass
@@ -315,7 +315,7 @@ services:
       - NEO4J_AUTH=neo4j/yourpass
 
   redis:
-    image: redis:7
+    image: redis:7-alpine
     ports: ["6379:6379"]
 
   worker:

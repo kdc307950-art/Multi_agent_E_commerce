@@ -1,0 +1,21 @@
+# Prometheus 抓取配置。
+# 指标由应用 /api/metrics 暴露（有界标签，绝不含 tenant_id；租户明细走受控审计查询）。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 应用 API：从 /api/metrics 拉取（同源反向代理下的私有内网，经 app-net 网络可达 api:8000）。
+  - job_name: api
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["api:8000"]
+
+  # 观测自身
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]

@@ -1,0 +1,43 @@
+{
+  "steps": [
+    {
+      "step": "create_session",
+      "thread_id": "201dd8aa-646f-4375-add8-85a6ca81c5b9"
+    },
+    {
+      "step": "policy",
+      "events": 27,
+      "final": "自签收之日起 7 天内，商品未经使用且包装完好可申请退货。生鲜、定制类不支持无理由退货。退货需买家先填写退货申请。"
+    },
+    {
+      "step": "request_refund",
+      "approval_id": "22d5dbe9-ca2a-4245-8277-23abd67fcc36",
+      "operation_id": "e5a7ce70-97c5-47c1-a0e1-6babddedb6d8"
+    },
+    {
+      "step": "approve",
+      "decision": {
+        "operation_id": "e5a7ce70-97c5-47c1-a0e1-6babddedb6d8",
+        "status": "executed",
+        "message": "审批已通过，已执行。"
+      }
+    },
+    {
+      "step": "query_operation",
+      "operation": {
+        "operation_id": "e5a7ce70-97c5-47c1-a0e1-6babddedb6d8",
+        "thread_id": "201dd8aa-646f-4375-add8-85a6ca81c5b9",
+        "order_id": "ORD-001",
+        "pending_action": "refund",
+        "status": "executed",
+        "idempotency_key": "oprefund:TENANT-A:ORD-001:LIVE-2",
+        "created_at": 1788440877.9582253,
+        "result": {
+          "message": "退款完成",
+          "order_id": "ORD-001",
+          "thread_id": "201dd8aa-646f-4375-add8-85a6ca81c5b9"
+        }
+      }
+    }
+  ]
+}

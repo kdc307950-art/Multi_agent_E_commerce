@@ -1,0 +1,137 @@
+# Docker Compose — 自托管可观测链路（监控 / 日志 / Trace / 审计）
+#
+# 完全自托管纪律：Langfuse（trace）、Prometheus + Grafana（指标）、Loki + Promtail（日志）
+# 全部由项目方部署，不接任何第三方托管 SaaS；应用侧出网被限制在受控内网。
+#
+# 与预览栈（docker-compose.preview.yml，项目名 after-sales-preview）协同：
+#   - 通过外部网络 after-sales-preview_internal 抓取 api:8000/api/metrics（Prometheus）；
+#   - 应用经 LANGFUSE_* 环境变量向 langfuse:3000 上报 trace（未配置则 no-op）；
+#   - 日志已在应用内全局 PII 脱敏（订单地址/支付信息/密钥均掩码），promtail 只采集转运。
+#
+# 用法：
+#   docker compose --env-file deploy/.env.preview -f docker-compose.observability.yml up -d
+#   docker compose --env-file deploy/.env.preview -f docker-compose.observability.yml down
+# 建议把 deploy/scripts/observability.sh 作为入口（幂等启停 + 健康检查）。
+#
+# 注意：网络 after-sales-preview_internal 由 preview 栈创建；需先启动 preview 再启动本栈。
+
+name: after-sales-observability
+
+services:
+  # ---- Langfuse（自托管全链路 trace）----
+  langfuse:
+    image: docker.1ms.run/library/langfuse/langfuse:3
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD:?LANGFUSE_DB_PASSWORD 必须由密钥注入}@langfuse-postgres:5432/langfuse
+      - REDIS_HOST=langfuse-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${LANGFUSE_REDIS_PASSWORD:?LANGFUSE_REDIS_PASSWORD 必须由密钥注入}
+      - SALT=${LANGFUSE_SALT:?LANGFUSE_SALT 必须由密钥注入}
+      - LANGFUSE_WORKER_QUEUE_ENABLED=true
+      - TELEMETRY_ENABLED=false            # 完全自托管：关闭匿名遥测
+    networks: [obs]
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "-T", "3", "http://localhost:3000/api/public/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  langfuse-postgres:
+    image: docker.1ms.run/library/postgres:16-alpine
+    environment:
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=${LANGFUSE_DB_PASSWORD:?LANGFUSE_DB_PASSWORD 必须由密钥注入}
+      - POSTGRES_DB=langfuse
+    volumes: ["./data/langfuse-postgres:/var/lib/postgresql/data"]
+    networks: [obs]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse -h localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  langfuse-redis:
+    image: docker.1ms.run/library/redis:7-alpine
+    command: ["redis-server", "--requirepass", "${LANGFUSE_REDIS_PASSWORD:?LANGFUSE_REDIS_PASSWORD 必须由密钥注入}"]
+    networks: [obs]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${LANGFUSE_REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ---- Prometheus（指标抓取；标签有界，绝不含 tenant_id）----
+  prometheus:
+    image: docker.1ms.run/library/prom/prometheus:v2.53.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./data/prometheus:/prometheus
+    networks: [obs, app-net]        # app-net 用于抓取 api:8000/api/metrics
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "-T", "3", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # ---- Grafana（展示；看板/告警由项目方维护）----
+  grafana:
+    image: docker.1ms.run/library/grafana/grafana:11.1.0
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD 必须由密钥注入}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes: ["./data/grafana:/var/lib/grafana"]
+    networks: [obs]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "-T", "3", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # ---- Loki（日志存储；应用已 PII 脱敏，此处只采集转运）----
+  loki:
+    image: docker.1ms.run/library/grafana/loki:3.1.0
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./deploy/observability/loki-config.yml:/etc/loki/config.yml:ro
+      - ./data/loki:/loki
+    networks: [obs]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "-T", "3", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # ---- Promtail（采集容器 stdout 日志；应用日志已脱敏）----
+  promtail:
+    image: docker.1ms.run/library/grafana/promtail:3.1.0
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./deploy/observability/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [obs, app-net]
+    depends_on:
+      loki:
+        condition: service_healthy
+
+networks:
+  # 可观测自网（内网；不发布宿主端口）
+  obs:
+    driver: bridge
+    internal: true
+  # 复用预览栈内网（抓取 api:8000、跟随应用容器日志），需先启动 preview 栈。
+  app-net:
+    external: true
+    name: after-sales-preview_internal

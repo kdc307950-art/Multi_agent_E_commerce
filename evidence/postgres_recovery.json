@@ -1,0 +1,9 @@
+{
+  "backup_seconds": 0.353,
+  "restore_seconds": 1.963,
+  "rpo_seconds": 0.0,
+  "dump_ok": true,
+  "restore_ok": true,
+  "rows_seeded": 2,
+  "rows_restored": 2
+}

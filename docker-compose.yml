@@ -1,0 +1,151 @@
+# Docker Compose — 本地/单机功能验证拓扑（非生产 HA）
+#
+# 说明：数据面接入 PostgreSQL + RLS + TenantScopedCheckpointer（Phase 2）。migrate 服务
+# 一次性初始化 schema/RLS；api/worker 在 PostgreSQL 与 Redis 健康后才启动；提供健康检查与
+# 服务启动依赖；restore-test 服务运行 PostgreSQL 集成测试（-m postgres），覆盖 checkpoint
+# 恢复与删除清理。Milvus/Neo4j standalone 属后续阶段，暂未纳入。
+#
+# 备注：基础镜像走镜像加速器（docker.1ms.run，本机对 docker.io 直连受限）；pypi/npm 亦用
+# 国内可达源。本拓扑不构成生产高可用，任何“可运行”结论都不等同于预发布/生产验收。
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=langgraph
+    ports: ["5432:5432"]
+    volumes: ["./data/postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d langgraph -h localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # 一次性迁移：业务表 + checkpoint 表 + RLS + 函数（幂等）。api/worker 等它完成后启动。
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "src.infrastructure.migrate_cli"]
+    environment:
+      - ENV=development
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/langgraph
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # 本 Compose 是本地/单机功能验证栈，使用 Mock 认证（AUTH_BACKEND=mock）是允许的；
+      # 因此 env 标记为 development。任何 preview/production 部署都必须配置 AUTH_BACKEND=real
+      # + AUTH_JWT_SECRET，否则应用启动即 fail-closed（禁止 Mock 认证对外服务）。
+      - ENV=development
+      - STORAGE_BACKEND=postgres
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/langgraph
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      # 完全自托管：使用本地/内网 OpenAI 兼容端点（此处为示例，须替换）
+      - LLM_BACKEND=mock
+      - LLM_BASE_URL=http://model-endpoint:8001/v1
+      - LLM_MODEL=self-hosted-model
+      # 完全自托管检索：keyword（缺省确定性）| milvus（本地 Milvus Lite）
+      - RETRIEVAL_BACKEND=keyword
+      # CrewAI/MCP 集成（默认关闭；打开须提供真实调用链并验证）
+      - CREWAI_ENABLED=false
+      # 严格：低置信度 fail-closed 转人工
+      - INTENT_CONFIDENCE_THRESHOLD=0.7
+      # 本地功能验证栈：前端(:3000)跨域访问 /api → API 开启 CORS 白名单。
+      # 生产优先用统一反向代理 + 同源 /api，可关闭 CORS（ENABLE_CORS=false）。
+      - ENABLE_CORS=true
+      - CORS_ALLOW_ORIGINS=http://localhost:3000
+    ports: ["8000:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A src.tasks.worker worker -l info
+    environment:
+      - ENV=development
+      - STORAGE_BACKEND=postgres
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/langgraph
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,redis; redis.from_url(os.environ['REDIS_URL']).ping()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # PostgreSQL 数据面恢复/清理测试：验证 checkpoint 恢复、RLS、删除清理。
+  restore-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "pytest", "-m", "postgres", "-q", "--disable-warnings"]
+    environment:
+      - ENV=development
+      - STORAGE_BACKEND=postgres
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/langgraph
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./tests:/app/tests
+      - ./src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+    ports: ["3000:3000"]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

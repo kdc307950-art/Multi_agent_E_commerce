@@ -1,0 +1,38 @@
+# 电商售后多智能体工单系统 — Python 后端依赖（冻结候选基线）
+# 版本说明（2026-09-03 冻结；安装后须在本环境做导入/最小运行验收，见 README / 落地细节）
+#
+# crewai==0.152.0 因依赖链过深（litellm==1.74.3/chromadb/onnxruntime/pdfplumber…）在当前
+# 安装器下触发 resolutions-too-deep，故不加入本文件主清单，改用独立虚拟环境单独安装验收
+# （见 README「crewai 验收」）。本文件只列出已在本机 CPython 3.12.9 验证可导入的核心依赖。
+
+# ---- LangGraph 编排 / 状态 ----
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+langgraph-checkpoint-sqlite==3.1.1        # 原型/开发 SqliteSaver
+langgraph-checkpoint-postgres==3.1.2      # 生产 AsyncPostgresSaver（RGAD 隔离在 Docker/预发布验证）
+langchain-core>=1.0,<2.0
+
+# ---- 后端 / API ----
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7
+pydantic-settings>=2.2
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+sse-starlette>=2.0.0
+
+# ---- 存储 / 队列（数据面；Docker/预发布验证）----
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+psycopg-pool>=3.1
+redis>=5.0
+celery>=5.3
+
+# ---- 测试 ----
+pytest>=8.0
+pytest-asyncio>=0.23
+httpx>=0.27
+
+# ---- 注意 ----
+# 不引入公有 SaaS / WebSocket / GraphQL / BullMQ / Streamlit。
+# 长期记忆 graphiti/neo4j、向量 milvus、自托管 langfuse、deepeval 属后续阶段，未在本环境安装验收。

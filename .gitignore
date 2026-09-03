@@ -1,5 +1,6 @@
 # Python
 .venv/
+.accept-crewai-venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -20,6 +21,8 @@ checkpoints.db-wal
 # Env
 .env
 .env.local
+deploy/.env.preview
+deploy/secrets/certs/
 
 # Node / frontend
 node_modules/

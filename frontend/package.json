@@ -1,0 +1,31 @@
+{
+  "name": "after-sales-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@ant-design/icons": "5.4.0",
+    "antd": "5.20.0",
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "allowScripts": {
+    "next": true,
+    "@next/swc-linux-x64-gnu": true,
+    "@next/swc-win32-x64-msvc": true,
+    "core-js": true,
+    "core-js-pure": true
+  },
+  "devDependencies": {
+    "@types/node": "20.14.0",
+    "@types/react": "18.3.3",
+    "playwright-core": "^1.62.1",
+    "typescript": "5.5.4"
+  }
+}

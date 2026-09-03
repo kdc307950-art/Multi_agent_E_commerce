@@ -47,6 +47,8 @@ class AgentState(TypedDict, total=False):
     messages: Required[Annotated[List[dict], add_messages]]
     tenant_id: Required[str]       # 服务端认证后的租户上下文，禁止由模型/客户端指定
     user_id: Required[str]
+    thread_id: Optional[str]       # 服务端签发的会话线程；HTTP 层校验归属
+    client_request_id: Optional[str]  # start 请求去重 ID，用于敏感写幂等与 start 去重
     order_id: Optional[str]
 
     # 意图与路由

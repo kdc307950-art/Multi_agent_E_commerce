@@ -1,0 +1,207 @@
+# Docker Compose — 线上预发布（preview）拓扑（单节点，非生产 HA）
+#
+# 安全基线（详见 deploy/PREVIEW_DEPLOYMENT_CHECKLIST.md）：
+# 1. 仅 nginx 暴露 80/443；PostgreSQL、Redis、API、前端、worker 全部仅在私有内网
+#    （internal），不发布任何宿主机端口。
+# 2. HTTPS 由 nginx 终结（同源代理），前端统一访问同源 /api，API 关闭 CORS（ENABLE_CORS=false）。
+# 3. 演示/硬编码密码全部移除，改由服务器环境密钥注入：POSTGRES_PASSWORD、REDIS_PASSWORD、
+#    APP_RUNTIME_PASSWORD、AUTH_JWT_SECRET、LLM_API_KEY。
+# 4. 数据库迁移角色（POSTGRES_USER=migrator，owner/DDL）与运行角色（app_runtime，
+#    LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS）严格分离；api/worker 仅以运行角色连接
+#    （DATABASE_URL），不执行 DDL；migrate 一次性服务以迁移角色执行建表/RLS/函数。
+# 5. 受限环境 fail-closed：ENV=preview 且 AUTH_BACKEND=real 且 AUTH_JWT_SECRET 缺失时，
+#    api 启动即失败；若 AUTH_BACKEND=mock 亦启动即失败（见 src/main.py fail_closed_auth_guard）。
+#
+# 用法（在本文件所在目录执行；密钥放在 deploy/.env.preview，见 .example）：
+#   docker compose --env-file deploy/.env.preview -f docker-compose.preview.yml build
+#   docker compose --env-file deploy/.env.preview -f docker-compose.preview.yml up -d
+# 部署/迁移/回滚/健康检查见 deploy/scripts/*.sh 与 PREVIEW_DEPLOYMENT_CHECKLIST.md。
+
+# 独立 compose 项目名：与本地开发 compose（docker-compose.yml）隔离，避免数据卷/容器/镜像冲突。
+name: after-sales-preview
+
+services:
+  postgres:
+    image: docker.1ms.run/library/postgres:17-alpine
+    environment:
+      # POSTGRES_USER 即数据库 owner（本拓扑兼任迁移角色，具备 CREATE/ALTER/CREATEROLE）。
+      - POSTGRES_USER=${POSTGRES_USER:-migrator}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须由密钥注入}
+      - POSTGRES_DB=${POSTGRES_DB:-langgraph}
+    # 私有内网：不发布宿主端口，宿主不可达。
+    networks: [internal]
+    volumes: ["./data/preview-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-migrator} -d ${POSTGRES_DB:-langgraph} -h localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  redis:
+    image: docker.1ms.run/library/redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD 必须由密钥注入}"]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD 必须由密钥注入}
+    # 私有内网：不发布宿主端口，宿主不可达。
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # 一次性迁移：以迁移角色（owner）建表 + 官方 checkpoint 表 + RLS + 函数，并创建/更新
+  # 运行角色 app_runtime 及其口令。api/worker 等它成功后才启动。
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "src.infrastructure.migrate_cli"]
+    environment:
+      - ENV=preview
+      - DATABASE_MIGRATOR_URL=postgresql://${POSTGRES_USER:-migrator}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - APP_RUNTIME_PASSWORD=${APP_RUNTIME_PASSWORD:?APP_RUNTIME_PASSWORD 必须由密钥注入}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # 受限环境：真实认证 + PostgreSQL 数据面 + 关闭 CORS（同源反向代理）。
+      - ENV=preview
+      - STORAGE_BACKEND=postgres
+      - AUTH_BACKEND=real
+      - AUTH_JWT_SECRET=${AUTH_JWT_SECRET:?AUTH_JWT_SECRET 必须由密钥注入，否则启动 fail-closed}
+      - AUTH_JWT_ISSUER=${AUTH_JWT_ISSUER:-after-sales}
+      - AUTH_JWT_AUDIENCE=${AUTH_JWT_AUDIENCE:-after-sales-web}
+      - ENABLE_CORS=false
+      # 运行角色（app_runtime，非 owner）：仅 DML；preview 不允许运行角色执行 DDL。
+      - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - DATABASE_MIGRATE_ON_STARTUP=false
+      # Redis（带口令：redis://:password@host）
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      # 完全自托管 LLM（内网 OpenAI 兼容端点；预览用真实端点，密钥注入）。
+      - LLM_BACKEND=${LLM_BACKEND:-openai_compatible}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://model-endpoint:8001/v1}
+      - LLM_API_KEY=${LLM_API_KEY:?LLM_API_KEY 必须由密钥注入}
+      - LLM_MODEL=${LLM_MODEL:-self-hosted-model}
+      # 完全自托管检索：keyword（确定性缺省）
+      - RETRIEVAL_BACKEND=keyword
+      - CREWAI_ENABLED=false
+      - INTENT_CONFIDENCE_THRESHOLD=0.7
+      # 自托管可观测（可选）：配置 LANGFUSE_* 后应用向自托管 Langfuse 发 trace
+      # （metadata 含 tenant_id/session_id/environment，PII 脱敏）。缺省留空 → 追踪 no-op。
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+      # 结构化 JSON 日志（带 tenant_id 上下文），由自托管日志链路采集；建议 preview 开启。
+      - LOG_JSON_FORMAT=${LOG_JSON_FORMAT:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    # 私有内网：由 nginx 反向代理，不发布宿主端口。
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A src.tasks.worker worker -l info
+    environment:
+      - ENV=preview
+      - STORAGE_BACKEND=postgres
+      - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      # 自托管可观测（可选）：与 api 一致。
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+      - LOG_JSON_FORMAT=${LOG_JSON_FORMAT:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,redis; redis.from_url(os.environ['REDIS_URL']).ping()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 同源代理：浏览器只访问同源 /api（由 nginx 终结 HTTPS 后转发 api:8000）。
+        NEXT_PUBLIC_API_BASE_URL: "/api"
+        # 关闭 Next 服务端 rewrites（同源由 nginx 承担），避免预览容器内错误代理。
+        API_PROXY_TARGET: ""
+    environment:
+      - NODE_ENV=production
+    networks: [internal]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # 受控反向代理 + HTTPS：仅暴露 80/443。80 一律 301 到 443；443 将 /api/* 转发到 api:8000，
+  # 其余转发到 frontend:3000。同源，故 API 关闭 CORS。SSL 证书挂载自 deploy/secrets/certs。
+  nginx:
+    image: docker.1ms.run/library/nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/preview.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/secrets/certs:/etc/nginx/certs:ro
+    networks: [edge, internal]
+    depends_on:
+      frontend:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- -T 3 http://localhost/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+networks:
+  # edge：仅 nginx 挂载，宿主经 80/443 进出的唯一通道。
+  edge:
+    driver: bridge
+  # internal：数据面 + 应用面私网（不发布任何宿主端口，故 PostgreSQL/Redis/API/前端/worker
+  # 在宿主机上无监听）。允许自托管模型端点接入；如需更严格的完全自托管出口阻断，
+  # 可将本网络设为 internal:true 并把自托管 LLM 网关挂到同一网络（见部署清单）。
+  internal:
+    driver: bridge

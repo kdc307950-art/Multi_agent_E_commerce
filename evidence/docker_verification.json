@@ -1,0 +1,50 @@
+{
+  "compose_status_before": {
+    "redis": {
+      "status": "running",
+      "image": "redis:7-alpine"
+    },
+    "postgres": {
+      "status": "running",
+      "image": "postgres:17-alpine"
+    },
+    "frontend": {
+      "status": "running",
+      "image": "multi_agent_e_commerce-frontend:latest"
+    },
+    "api": {
+      "status": "running",
+      "image": "multi_agent_e_commerce-api:latest"
+    },
+    "worker": {
+      "status": "running",
+      "image": "multi_agent_e_commerce-worker:latest"
+    }
+  },
+  "redis_restart": {
+    "restarted": true,
+    "running_after": true,
+    "ping_after": true,
+    "version_after": "6.0.16"
+  },
+  "worker_restart": {
+    "restarted": true,
+    "running_after": true,
+    "log_tail": "rk)\n-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)\n--- ***** ----- \n -------------- [queues]\n                .> celery           exchange=celery(direct) key=celery\n                \n\n[tasks]\n  . memory.write_tick\n\n[2026-09-03 13:55:34,917: INFO/MainProcess] Connected to redis://redis:6379/0\n[2026-09-03 13:55:34,922: INFO/MainProcess] mingle: searching for neighbors\n"
+  },
+  "postgres_recovery": {
+    "backup_seconds": 2.633,
+    "restore_seconds": 0.242,
+    "rpo_seconds": 0.0,
+    "dump_ok": true,
+    "restore_ok": true,
+    "tenants:sessions_restored": "ERROR:  relation \"tenants\" does not exist\nLINE 1: SELECT (SELECT count(*) FROM tenants) || ':' || (SELECT coun...\n                                     ^"
+  },
+  "compose_status_after": {
+    "redis": "running",
+    "postgres": "running",
+    "frontend": "running",
+    "api": "running",
+    "worker": "running"
+  }
+}

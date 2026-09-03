@@ -1,0 +1,7 @@
+{
+  "postgres_version": "PostgreSQL 17.11",
+  "db": "langgraph",
+  "pg_user": "user",
+  "redis_ping": true,
+  "redis_version": "6.0.16"
+}

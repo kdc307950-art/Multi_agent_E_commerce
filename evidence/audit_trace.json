@@ -1,0 +1,42 @@
+{
+  "tool": "audit_trace",
+  "tenant_id": "TENANT-A",
+  "filters": {
+    "thread_id": null,
+    "approval_id": "appr-0001",
+    "operation_id": null,
+    "action": null
+  },
+  "record_count": 2,
+  "records": [
+    {
+      "audit_id": "7aa256e1-ec69-437f-9d04-959ebe538bc6",
+      "tenant_id": "TENANT-A",
+      "user_id": "USER-001",
+      "action": "approval.request",
+      "target_type": "approval",
+      "target_id": "appr-0001",
+      "detail": {
+        "thread_id": "thr-demo-1",
+        "operation_id": "op-a1b2c3",
+        "address": "[地址已脱敏]",
+        "amount": 299.0
+      },
+      "created_at": 1788450710.068917
+    },
+    {
+      "audit_id": "1d03ec83-f2a2-45c2-be18-8c409abfec76",
+      "tenant_id": "TENANT-A",
+      "user_id": "ADMIN-A",
+      "action": "approval.decide",
+      "target_type": "approval",
+      "target_id": "appr-0001",
+      "detail": {
+        "thread_id": "thr-demo-1",
+        "operation_id": "op-a1b2c3",
+        "approved": true
+      },
+      "created_at": 1788450711.068917
+    }
+  ]
+}

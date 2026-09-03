@@ -93,4 +93,26 @@
 
 ---
 
+## 六、当前落地状态（2026-09 盘点）
+
+> 本节用词遵守工作纪律：**本地/Mock 已验证** 与 **待预发布/Docker 验证** 严格分开，绝不把未验证内容写成"生产可用"。以下状态是对当前工作区的诚实快照，会随阶段推进更新。
+
+| 项 | 状态 | 证据 / 说明 |
+|---|---|---|
+| 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
+| 最小闭环 | **本地已验证** | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
+| 自动化测试 | **59 通过（本地）** | `pytest tests/`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、OpenAPI 契约锁死、SQLite 持久化、安全回归（Mock 令牌受限环境禁用、同租户跨用户越权、过期/删除会话拒绝、回复边、CORS、审计） |
+| 存储后端 | **memory + sqlite 可插拔** | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；PostgreSQL 容器已启动但数据面（PostgresStore/RLS）未接入，属生产目标 |
+| 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0` 在独立 venv 导入+对象构造验收通过，**未与 langgraph 同环境验证共存** |
+| 前端 | **容器内构建成功** | `docker build frontend` 成功（Next.js 14.2.5 `Ready`，`/` 返回 200）；本机 npm 受安全策略限制，故在容器内构建验证 |
+| Docker Compose | **本机实机验证** | 已 `docker compose up` 启动 postgres:17-alpine/redis:7-alpine/api/frontend/worker 并验证：postgres `SELECT version` 通过、redis `PONG`、api `:8000` openapi 200 + 退款触发 `approval_required`、frontend `:3000` 200 |
+| PostgreSQL/RLS | **服务已起，数据面未接入** | PostgreSQL 容器已启动并连通；`TenantScopedCheckpointer + AsyncPostgresSaver + RLS` 属生产目标，待实现与验证 |
+| 长期记忆（Graphiti/Neo4j） | **未接入** | 属后续阶段，依赖其版本/许可/自托管验证，不承诺 |
+| 能力矩阵 / CrewAI 子智能体 | **Mock 层验证** | 写操作门控与审批流在工作流层验证；真实 `crewai==0.152.0` 子智能体集成待验收 |
+| **自托管 LLM 端点接入** | **代码就位 + 本地验收** | `src/llm/self_hosted_server.py`（自托管 OpenAI 兼容端点）、`EndpointGuard`（网络白名单）、脱敏日志、评测驱动白名单（`src/llm/capability` + `tests/test_llm_endpoint_gate.py`）；`verify_llm_chain.py` 三验收项通过。真实模型权重尚未接入，写白名单需以真实端点跑 `scripts/evaluate_models.py` 后按报告注入 |
+
+**结论**：当前为**可运行的本地/容器骨架**（Mock 数据 + Mock LLM），用于验证流程与契约；已完成 Docker Compose 全栈启动验证与前端容器内构建。**未完成**：PostgreSQL 数据面接入（PostgresStore + TenantScopedCheckpointer + RLS）、真实 LLM 端点、长期记忆（Graphiti/Neo4j）与预发布验证——这些属生产目标/后续阶段，未验证处不得宣称生产可用。
+
+---
+
 *版本 1.6 · 2026-09-03 · 多租户设计文档包索引 · 全包 11 份正文 + 本文档。*
