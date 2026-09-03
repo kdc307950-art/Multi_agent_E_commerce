@@ -42,6 +42,21 @@ from src.core.types import (
 from src.execution.types import ExecutionMode, ExecutionRecord, ExecutionStatus
 
 
+def _as_json(value):
+    """安全解析 JSONB 列值。
+
+    psycopg3 驱动会按 PostgreSQL 列类型自动把 JSONB/JSON 列解析为 Python dict/list；
+    SQLAlchemy 在读取这些列时不会再次处理。因此用本助手仅在值为 str/bytes 时才
+    json.loads，已经是 dict/list（或 None）则原样返回，避免对已解析对象重复 json.loads
+    抛 'the JSON object must be str, bytes or bytearray, not dict'。
+    """
+    if value is None:
+        return None
+    if isinstance(value, (str, bytes, bytearray)):
+        return json.loads(value)
+    return value
+
+
 class PostgresStore:
     def __init__(self, database_url: str, *, engine: Engine | None = None) -> None:
         if engine is not None:
@@ -295,7 +310,7 @@ class PostgresStore:
                          pending_action=PendingAction(row["pending_action"]),
                          idempotency_key=row["idempotency_key"],
                          status=OperationStatus(row["status"]), created_at=row["created_at"],
-                         result=json.loads(row["result"]) if row["result"] else None)
+                         result=_as_json(row["result"]))
 
     # ---- 审批 ----
     def create_approval(self, tenant_id: str, thread_id: str, operation_id: str,
@@ -546,9 +561,9 @@ class PostgresStore:
             created_at=row["created_at"], updated_at=row["updated_at"], amount=row["amount"],
             external_txn_id=row["external_txn_id"], callback_nonce=row["callback_nonce"],
             submitted_at=row["submitted_at"], confirmed_at=row["confirmed_at"],
-            receipt=json.loads(row["receipt"]) if row["receipt"] else None,
+            receipt=_as_json(row["receipt"]),
             compensation_status=row["compensation_status"],
-            compensation_result=json.loads(row["compensation_result"]) if row["compensation_result"] else None,
+            compensation_result=_as_json(row["compensation_result"]),
             last_error=row["last_error"], attempts=row["attempts"],
         )
 
@@ -609,7 +624,7 @@ class PostgresStore:
                 {"sid": stream_id, "ls": last_seq},
             ).mappings().all()
         return [{"stream_id": r["stream_id"], "seq": r["seq"], "event": r["event"],
-                 "data": json.loads(r["data"]), "created_at": r["created_at"]} for r in rows]
+                 "data": _as_json(r["data"]), "created_at": r["created_at"]} for r in rows]
 
     # ---- 审计 ----
     def append_audit(self, tenant_id: str, user_id: str, action: str, target_type: str,
@@ -633,7 +648,7 @@ class PostgresStore:
             ).mappings().all()
         return [AuditRecord(audit_id=r["audit_id"], tenant_id=r["tenant_id"], user_id=r["user_id"],
                             action=r["action"], target_type=r["target_type"], target_id=r["target_id"],
-                            detail=json.loads(r["detail"]), created_at=r["created_at"]) for r in rows]
+                            detail=_as_json(r["detail"]), created_at=r["created_at"]) for r in rows]
 
     def search_audit(self, tenant_id: str, **filters) -> list[AuditRecord]:
         from src.infrastructure.store import filter_audit
