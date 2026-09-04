@@ -184,6 +184,52 @@ BUSINESS_SCHEMA_SQL: list[str] = [
     """
     CREATE INDEX IF NOT EXISTS idx_audit_tenant_created ON audit (tenant_id, created_at)
     """,
+    # orders：业务订单（受控数据源）。items 为 JSONB（商品明细）；created_at/delivered_at
+    # 为 Unix 秒，用于退款/退货资格窗口判定。跨租户读取由 RLS 隔离 + 适配器归属校验兜底。
+    """
+    CREATE TABLE IF NOT EXISTS orders (
+        tenant_id TEXT NOT NULL REFERENCES tenants(id),
+        order_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        total_amount DOUBLE PRECISION NOT NULL,
+        items JSONB NOT NULL DEFAULT '[]',
+        carrier TEXT,
+        tracking_no TEXT,
+        created_at DOUBLE PRECISION,
+        delivered_at DOUBLE PRECISION,
+        PRIMARY KEY (tenant_id, order_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_orders_tenant_user
+        ON orders (tenant_id, user_id)
+    """,
+    # shipping_events：物流轨迹（每个订单至多一条轨迹，events 为事件 JSONB 数组）
+    """
+    CREATE TABLE IF NOT EXISTS shipping_events (
+        tenant_id TEXT NOT NULL REFERENCES tenants(id),
+        order_id TEXT NOT NULL,
+        tracking_no TEXT,
+        events JSONB NOT NULL DEFAULT '[]',
+        PRIMARY KEY (tenant_id, order_id),
+        FOREIGN KEY (tenant_id, order_id) REFERENCES orders(tenant_id, order_id) ON DELETE CASCADE
+    )
+    """,
+    # policy_documents：售后政策（租户作用域，供检索后端预载 / 关键字检索）
+    """
+    CREATE TABLE IF NOT EXISTS policy_documents (
+        tenant_id TEXT NOT NULL REFERENCES tenants(id),
+        doc_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        PRIMARY KEY (tenant_id, doc_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_policy_documents_tenant
+        ON policy_documents (tenant_id)
+    """,
     # checkpoint_thread_scopes：应用层权威 scope 映射（官方 checkpoint 表只带 thread_id，
     # 此处建立 tenant_id + thread_id 合法归属，供 RLS 存在性关联与清理 claim 使用）
     """
@@ -279,6 +325,30 @@ RLS_TABLES_SQL: list[str] = [
         USING (tenant_id = app_current_tenant_id())
         WITH CHECK (tenant_id = app_current_tenant_id());
     """.format(t="checkpoint_thread_scopes"),
+    """
+    ALTER TABLE {t} ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE {t} FORCE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS {t}_tenant_scope ON {t};
+    CREATE POLICY {t}_tenant_scope ON {t}
+        USING (tenant_id = app_current_tenant_id())
+        WITH CHECK (tenant_id = app_current_tenant_id());
+    """.format(t="orders"),
+    """
+    ALTER TABLE {t} ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE {t} FORCE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS {t}_tenant_scope ON {t};
+    CREATE POLICY {t}_tenant_scope ON {t}
+        USING (tenant_id = app_current_tenant_id())
+        WITH CHECK (tenant_id = app_current_tenant_id());
+    """.format(t="shipping_events"),
+    """
+    ALTER TABLE {t} ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE {t} FORCE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS {t}_tenant_scope ON {t};
+    CREATE POLICY {t}_tenant_scope ON {t}
+        USING (tenant_id = app_current_tenant_id())
+        WITH CHECK (tenant_id = app_current_tenant_id());
+    """.format(t="policy_documents"),
 ]
 
 # 官方 checkpoint 表（由 saver.setup() 建表后启用 RLS；policy 用存在性关联）
@@ -328,6 +398,75 @@ BEGIN
 END
 $$;
 """.format(role=APP_RUNTIME_ROLE)
+
+
+# 建议的**最小权限备份角色**（只读，专供备份脚本做 pg_dump 导出）。
+# 与运行角色 app_runtime（DML）、迁移角色（owner/DDL）三方分离：
+#   - 迁移角色：建表/RLS/函数（owner），具备 CREATE/ALTER；
+#   - 运行角色 app_runtime：仅 GRANT 后的 DML（app 数据面）；**NOBYPASSRLS**（租户隔离靠 RLS）；
+#   - 备份角色 backup_role：仅 LOGIN + CONNECT + USAGE + SELECT（表/序列），**无任何写/DDL 权限**。
+# 备份脚本（backup_encrypted.sh / preview_backup_scheduler.sh）用它做 `pg_dump -Fc`，绝不使用 owner/超级用户。
+#
+# 【关键设计】备份角色必须 BYPASSRLS：完整备份需要读出**全部行**（含所有租户），而业务表已
+# ENABLE/FORCE RLS，非 owner 且 NOBYPASSRLS 的角色执行 `COPY ... TO stdout`（pg_dump 读数据）会被 RLS
+# 拦截（"query would be affected by row-level security policy"）。BYPASSRLS 只是**绕开行级过滤以读出全量**，
+# 它**不是写/DDL 权限**：备份角色仍只被授予 SELECT，绝无 INSERT/UPDATE/DELETE/TRUNCATE/DDL。
+# 这与运行角色 app_runtime 的 NOBYPASSRLS（租户隔离）明确不同——备份是全租户快照，必须能读全量。
+BACKUP_ROLE = "backup_role"
+BACKUP_ROLE_SQL = """
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
+        CREATE ROLE {role} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
+    END IF;
+END
+$$;
+""".format(role=BACKUP_ROLE)
+
+
+def apply_backup_role(engine: "Engine", password: str | None = None, dbname: str | None = None) -> None:
+    """创建（若不存在）最小权限备份角色 backup_role，设置口令并授以**只读**最小权限。
+
+    安全目标：备份脚本绝不以 owner/超级用户连接。backup_role 只具备：
+      * LOGIN（可认证连接；NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE **BYPASSRLS**）；
+      * CONNECT ON 当前数据库；
+      * USAGE ON SCHEMA public；
+      * SELECT ON 全部表/序列（含未来默认权限），用于 pg_dump 完整只读导出。
+
+    **明确不授予** INSERT/UPDATE/DELETE/TRUNCATE/DDL；并显式 `REVOKE CREATE ON SCHEMA public`/`ON DATABASE`
+    以兜底（PG14 及更早版本的 `public` schema 默认给 PUBLIC 授予 CREATE，不回收则备份角色可建表，违反最小权限）。
+    因此任何写入/DDL 都会因 permission denied 而失败（下钻可验证：backup_role 无 DML/DDL 授权）。
+
+    BYPASSRLS 仅用于让备份角色读出**全量**数据（含 RLS 表），不赋予任何写/DDL 权限；其授予需超级用户。
+
+    需 CREATEROLE/超级用户权限（由 migrate 一次性服务以迁移角色执行）；不具备时抛异常由部署脚本处理。
+    `password` 来自服务器环境密钥注入（BACKUP_ROLE_PASSWORD），为备份角色设置可认证口令；
+    始终 ALTER 以幂等更新（每次迁移都同步最新注入口令）。传空则跳过口令设置（仅限本地开发）。
+    """
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(text(BACKUP_ROLE_SQL))
+        if password:
+            # PostgreSQL DDL (ALTER ROLE ... PASSWORD) 不接受绑定参数，需转义后以字面量执行。
+            escaped = password.replace("'", "''")
+            conn.execute(text(f"ALTER ROLE {BACKUP_ROLE} PASSWORD '{escaped}'"))
+        if not dbname:
+            dbname = conn.execute(text("SELECT current_database()")).scalar()
+        conn.execute(text(f'GRANT CONNECT ON DATABASE "{dbname}" TO {BACKUP_ROLE}'))
+        conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {BACKUP_ROLE}"))
+        # 兜底：回收 public schema 的 CREATE（PG14 或默认放开 ACL 的环境），确保备份角色（及任何 PUBLIC 成员）
+        # 都不能在 public 上做 DDL；运行角色 app_runtime 亦受益（仅 DML）。
+        conn.execute(text("REVOKE CREATE ON SCHEMA public FROM PUBLIC"))
+        conn.execute(text(f"REVOKE CREATE ON SCHEMA public FROM {BACKUP_ROLE}"))
+        conn.execute(text(f'REVOKE CREATE ON DATABASE "{dbname}" FROM {BACKUP_ROLE}'))
+        conn.execute(text(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {BACKUP_ROLE}"))
+        conn.execute(text(f"GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {BACKUP_ROLE}"))
+        # 未来由迁移角色新建的表/序列也自动授予只读（备份角色无需拥有写权限）。
+        conn.execute(text(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {BACKUP_ROLE}"))
+        conn.execute(text(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO {BACKUP_ROLE}"))
 
 
 def apply_business_schema(engine: "Engine") -> None:
@@ -395,6 +534,7 @@ def drop_everything(engine: "Engine") -> None:
         "checkpoint_writes", "checkpoint_blobs", "checkpoints", "checkpoint_migrations",
         "stream_events", "streams", "executions", "approvals", "operations", "sessions",
         "memberships", "checkpoint_thread_scopes", "audit", "tenants",
+        "shipping_events", "orders", "policy_documents",
     ]
     with engine.begin() as conn:
         for t in tables:
