@@ -13,8 +13,8 @@
 
 | 项 | 值 |
 |---|---|
-| 发布 tag | **`release/v1.0.0-rc3`** → 发布**基线尖端**（在 `fa7c9a3`(rc2 收口) 之上叠加"阶段一 rc3 收口"提交＝当前基线尖端；**以 tag 为锚**） |
-| 基线 commit 链 | `7941246`(已测功能) → `3268a1c`(可复现构建) → `696444a`(migrations 复合FK修复) → `8ddca48`(接受运行面) → `cd743d3`(BUSINESS_DATA_BACKEND, **rc1**) → `cde30fb`(T1/T7 发布证据+生产栈健康) → `59e37f2`(rc2 定稿历史) → `fa7c9a3`(rc2 收口) → **阶段一 rc3 收口提交(＝基线尖端)**。<br>注：发布锚为 `release/v1.0.0-rc3` **以基线尖端为准**（与具体 hash 解耦）；`release/v1.0.0-rc2` 锚定 `fa7c9a3`（历史、不可移动）。 |
+| 发布 tag | **`release/v1.0.0-rc3`** → 发布**基线尖端**（在 `fa7c9a3`(rc2 文档收口) 之上叠加"阶段一 rc3 收口"提交＝当前基线尖端；**以 tag 为锚**） |
+| 基线 commit 链 | `7941246`(已测功能) → `3268a1c`(可复现构建) → `696444a`(migrations 复合FK修复) → `8ddca48`(接受运行面) → `cd743d3`(BUSINESS_DATA_BACKEND, **rc1**) → `cde30fb`(T1/T7 发布证据+生产栈健康) → `59e37f2`(rc2 定稿历史) → `bca4861`(rc2 收口, **rc2 tag**) → `fa7c9a3`(rc2 文档) → **阶段一 rc3 收口提交(＝基线尖端)**。<br>注：发布锚为 `release/v1.0.0-rc3` **以基线尖端为准**（与具体 hash 解耦）；`release/v1.0.0-rc2` 锚定 `bca4861`（历史、不可移动）。 |
 | 镜像 digest | api `after-sales-prod-api@sha256:5d39f030...`；frontend `after-sales-prod-frontend@sha256:12c35ff7...`（**工作树构建观测值**；clean-context 字节级重建＝部署期执行项/BLOCKED-需 Docker engine 可连接） |
 | 迁移版本一致 | 项目**无数字 schema 版本**。一致性＝①迁移定义 `696444a` ∈ 基线链 ②镜像含迁移修复 ③`MIGRATE_VERIFY` 全新 prod-like 库 clean migrate exit 0（17表/复合FK/RLS生效）④checkpoint 由 `langgraph-checkpoint-postgres==3.1.2` 钉定驱动；`deploy_config_version=0.1.0` 三处一致 |
 | git 状态 | **clean**（阶段一已提交收口：测试默认写临时目录 + 真实 390/34 口径 + uv.lock 不入库，一次性提交）；HEAD=基线尖端（以 `release/v1.0.0-rc3` 为锚）。 |
