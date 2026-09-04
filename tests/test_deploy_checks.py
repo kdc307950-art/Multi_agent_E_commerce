@@ -8,7 +8,7 @@
 
 覆盖验收项：
 - 脏工作区被拒（repo_is_dirty + fail-closed 拒绝）。
-- 干净 ref 从【干净 worktree】构建（git worktree add → compose build --pull --provenance=false --sbom=false）。
+- 干净 ref 从【干净构建上下文】生成（git archive <ref> | tar -x → compose build --pull --provenance=false --sbom=false）。
 - 发布记录含 commit / digest / 构建时间 / 配置版本 / 可复现性字段。
 - check_secrets 门控：受限环境禁 DEMO_SEED_ENABLED、DEPLOY_CONFIG_VERSION 非空/非占位、
   AUTH_CREDENTIAL_HASH 仅 argon2id|bcrypt、弱哈希检测。
@@ -90,14 +90,16 @@ def test_deploy_script_rejects_dirty_worktree_without_allow_dirty():
 # ---------------------------------------------------------------------------
 def test_deploy_builds_from_clean_worktree():
     common = _script("common.sh")
-    # 干净 worktree：git worktree add --detach <ref>，避免主工作树未提交/未跟踪文件进入。
-    assert "git worktree add" in common
+    # 干净构建上下文：用 `git archive <ref> | tar -x -C <dir>` 物化该引用下【已提交源码】到临时目录
+    # （固定 mtime，不带走主工作树未提交/未跟踪文件），而非 git worktree add（其 mtime=检出时间随检出差）。
     assert "build_from_worktree" in common
-    assert "--detach" in common
-    # 可复现性：关闭 BuildKit provenance/attestation 清单，digest 字节级可复现。
+    assert "git archive" in common
+    assert "tar -x -C" in common
+    assert "repo_is_dirty" in common   # 保留脏工作区拒绝语义（deploy.sh 先拒脏再构建）
+    # 可复现性：关闭 BuildKit provenance/attestation 清单，为 digest 可复现提供最大确定性。
     assert "--provenance=false --sbom=false" in common
     assert "compose build --pull" in common
-    # 用 ref 的干净 worktree 作为 compose 文件与 build context。
+    # 用该引用物化的干净目录作为 compose 文件与 build context。
     assert "docker-compose.preview.yml" in common
 
 

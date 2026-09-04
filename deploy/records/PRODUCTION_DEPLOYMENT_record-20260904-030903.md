@@ -34,29 +34,27 @@
 | **backup（周期备份，t12 新增）** | `postgres:17-alpine` sidecar，`command=sh /app/backup.sh`，每 `BACKUP_INTERVAL_SECONDS=900`（15min）`pg_dump -Fc`，`BACKUP_KEEP=8`，宿主持久 `./data/preview-backups:/backups` | t12 |
 | 观测 | `prometheus:v2.53.0` / `grafana:11.1.0` / `loki:3.1.0` / `langfuse`（**v2.95.11，健康**）/ `promtail` / `langfuse-postgres` / `langfuse-redis`（观测栈 7 组件 healthy） | t1/t8 |
 
-## 3. Git 引用与构建（t4 部署基线字段）
-- 部署 git 引用：**`7941246`**（FOUND-SOFTWARE-1 修复已 commit；前一提交 `251f430` 为缺陷版，origin 部署时 HEAD=251f430，t9 修复后 api/worker 重建为 `7941246`）
-- **git commit（完整 / 短）**：`7941246a0ec95f2ecd404138beb87c59a8d7caba` / `7941246`（`git rev-parse HEAD`；branch `main`）
-- 构建方式：现运行镜像由 t1 早期 `compose build --pull` 构建；**t4 交付的部署基线改为【干净 worktree】构建**（`deploy/scripts/deploy.sh` + `common.sh::build_from_worktree`：从指定 git 引用检出干净 tree，build context 仅含该引用下已提交源码），**部署前强制 `git status --porcelain` 为空**（fail-closed，除非 `--allow-dirty`），绝不从脏工作区构建。
-- **镜像 digest（image id / repo digest，实测 `docker image inspect`）**：
-  | 服务 | digest（sha256） | `docker image inspect` Created |
-  |------|------------------|-------------------------------|
-  | api | `9cd9238b3ecf3180f173259eae4b66762069b04772ee2a6474cc6ac1136f5103`（`after-sales-preview-api@sha256:…`） | 2026-09-03T19:07:40Z |
-  | migrate | `c8ad7bd85d2fedce9a04208af61fba1ca70cacb9b86ddb8374f6627772f98052` | 2026-09-03T18:34:59Z |
-  | worker | `b43fdf37e7c78b09d64fab3f5ed98284e2a23d3dd26c3c9b2f9b6e60fe738ebb` | 2026-09-03T19:07:40Z |
-  | frontend | `730f24282162c3e2232dbc34cf18e11ebe427825e4dc80a6c8afb8fe6bb0df21` | 2026-09-03T18:37:27Z |
-  > 说明：以上为**当前实际运行镜像**（t1 早期构建，非 t4 复建）的可观测 digest；`RepoDigest` 与 image id 一致（本地构建未推送 registry）。
-- **构建时间**：api/worker 2026-09-03T19:07:40Z；migrate 2026-09-03T18:34:59Z；frontend 2026-09-03T18:37:27Z（`docker image inspect .Created`）。t4 的自动记录用 `deploy.sh` 的 `BUILD_TIMESTAMP`。
-- **环境配置版本（DEPLOY_CONFIG_VERSION）**：`0.1.0`（`src/config.py Settings().deploy_config_version` 默认；`deploy/.env.preview` 未显式覆盖。t4 已把该值接线到 api 环境变量 `DEPLOY_CONFIG_VERSION=${DEPLOY_CONFIG_VERSION:-0.1.0}`）。
-- `deploy/backups/rollback.log`：`deploy ref=<拉起时 ref> ts=<拉起时间>`（t1 记录；当前 HEAD=`7941246`）
-- TLS/证书生成：宿主无 openssl，用 `python:3.12-slim` 容器生成（`gen_certs.sh` 等价）
+## 3. Git 引用与构建（t10 git archive 固定 mtime 上下文 冷构建复验 · tag baseline-prod-4）
+- 发布 tag：**`baseline-prod-4`**（`git rev-parse baseline-prod-4` = HEAD）
+- **git commit（完整 / 短）**：`03819a8dec94af079a039685a168e7c081dcbaa9` / `03819a8`（branch `main`；message：`fix(reproducibility): build_from_worktree 改用 git archive 固定 mtime 物化构建上下文`）
+- **t10 做法（构建上下文）**：`deploy/scripts/common.sh::build_from_worktree` 由 `git worktree add` 改为 **`git archive <ref> | tar -x -C <dir>`**（导出的文件 mtime=**提交时间**，与克隆/检出时间无关），物化该 ref 已提交文件为构建上下文；保留 `repo_is_dirty` 拒绝逻辑；清理改为 `rm -rf` 临时目录。Dockerfile/requirements/lock 沿用 t9 的钉版（base 钉 digest + 依赖全 `==`/lock + SOURCE_DATE_EPOCH）。
+- 构建方式：**git archive 上下文** + `compose build --no-cache --provenance=false --sbom=false api` + `SOURCE_DATE_EPOCH=1704067200`（build env）。
+- **环境配置版本（DEPLOY_CONFIG_VERSION）**：`0.1.0`（`src/config.py` 默认；未显式覆盖）。
+- **baseline-prod-4 冷构建 api 镜像 digest（实测 `docker image inspect .Id`）**：两处独立 git-archive 上下文（A/B，源文件字节/哈希/mtime 完全一致）Build A `sha256:8d5149f9b83539d8423859307ae9cf9ca17915333485b98a489d49b03d797ce3`；Build B `sha256:cad78f1d094d5ad833f61cb4011ac4e726089f152fdccfdba7e3d7b3bc96ea35`。两 build `Created` 均 = `2024-01-01T00:00:00Z`（SOURCE_DATE_EPOCH 生效）。
+- **构建时间**：冷构建 `Created=2024-01-01T00:00:00Z`（`SOURCE_DATE_EPOCH=1704067200` 固定；实际构建于本会话）。运行镜像仍为 t1 旧代码（`9cd9238b…` 等）运行态，非 baseline-prod-4 重建。
 
-### 可复现性检查（同 ref 干净重建，t4 实测）
-- **PASS（api 服务）**：创建干净 tag `baseline-prod-1`（= HEAD `7941246`，`git tag baseline-prod-1 HEAD`），从**两处独立干净 worktree**（`git worktree add <tmp> baseline-prod-1`）分别 `compose build --provenance=false --sbom=false api`，两次得到的镜像 digest（`docker image inspect .Id`）**完全一致**：
-  - `after-sales-preview-api` → `sha256:a274b9f29ea310aad0fa504b9d8b5e57d6101a4e8aa186bd6a94b2c0eddd0cd1`
-  - 说明：**必须关闭 BuildKit 的 provenance/attestation**（`--provenance=false --sbom=false`），否则 attestation 清单含随机 provenance，`manifest-list`/repo digest 每次构建漂移（实测默认构建 `Id` 分别为 `f1b21d55…`/`4c791f6f…`/`909db9c6…`，均不同）；关闭后字节级可复现。
-  - 其余服务（migrate/worker/frontend）按同样方式用干净的 `baseline-prod-1` worktree 重建；frontend 依赖 npm 安装，未在本轮复测（标注：待实测）。
-- 备注：`requirements.txt` 存在未精确钉住的 `>=` 版本（`fastapi>=0.115.0`、`langchain-core>=1.0,<2.0`、`pydantic>=2.7`、`redis>=5.0`、`celery>=5.3`、`psycopg>=3.1`、`httpx>=0.27` 等）。实测短窗口内两次构建命中相同依赖（缓存 CACHED）→ 同 tag 一致；**但长期跨时间重建可能解析到更新依赖导致 digest 漂移**，完全可复现建议升级为 `==` 精确锁定。
+### 可复现性检查（baseline-prod-4 同 ref **冷构建** `--no-cache` + git archive 上下文，t10 实测）
+- **⚠ 仍未字节级一致，且决定性证明为 BuildKit 级非确定**：
+  - `git archive baseline-prod-4` 两处独立上下文（A/B，`Dockerfile`/`requirements-lock.txt`/`pyproject.toml` 的字节 SHA、mtime、属性**完全一致**，mtime=提交时间）+ `SOURCE_DATE_EPOCH=1704067200` 分别 `compose build --no-cache --provenance=false --sbom=false api`：Build A `sha256:8d5149f9…`，Build B `sha256:cad78f1d…`，**不一致**；层 5-8（COPY requirements-lock.txt / RUN pip / COPY src / COPY pyproject.toml）不同。
+  - **决定性证据**：对**同一个**上下文目录做**两次** `--no-cache` 冷构建（`SOURCE_DATE_EPOCH` 固定、`Created` 均=2024-01-01），两次 digest 仍不同（`0b14613d8fffd9487950f6894da8b77e3f9621419998fb0bd9056ef31c62ffc7` vs `6ac57cdfa5ae22a3b6c8e04798e04f994fd626732bd91d7f0ee61d5428c03597`）→ **非确定来自 Docker BuildKit（本 Docker Desktop buildx v0.35）构建过程本身**，与上下文/源码/mtime/base/依赖无关。
+  - 即便额外加 `.dockerignore` 过滤掉中文文档等非构建文件后（上下文最小、无中文文件名），冷构建层 5-8 仍漂移。
+- **根因**：本环境 buildkit **不保证冷构建层 DiffID 字节稳定**（即使输入完全相同）；`SOURCE_DATE_EPOCH`（env）只归一化 config `created`，未归一化层 tar；`--reproducible`（真正归一化层时间戳/内容）在本 buildx **不支持**（`unknown flag`，实测）。→ **仅靠源码/上下文/base/依赖钉版无法在本环境达成冷构建字节级一致**。
+- **结论**：
+  - **内容与配置已确定**：base 钉 digest + 依赖全 `==`/lock + `git archive` 固定 mtime + `SOURCE_DATE_EPOCH` 固定 created + `--provenance=false --sbom=false`（均已落地）。
+  - **deploy 管线（`--pull` + 层缓存，非 `--no-cache`）在 base+lock 钉住后缓存稳定 → 实际上线可复现**。
+  - **字节级冷构建**一致需要**可复现的构建器**（支持 `--reproducible` 的 buildkit / kaniko / ko / `uv build --reproducible` + 固定时钟的 CI）。
+- **建议**：切换到支持 `--reproducible` 的 buildkit（或 kaniko/ko / `uv pip compile`+哈希+固定时钟 CI）后，在固定时钟下重跑冷构建复验以给出字节级证据；当前保留 base 钉 digest + 依赖 lock + git archive + SOURCE_DATE_EPOCH + provenance=false（均为内容/配置确定性的正确措施）。
+- 注：`baseline-prod-1/2/3` 的“两遍一致”均系**命中缓存**，非真正冷构建一致；t9/t10 冷构建（`--no-cache`）暴露的图层/构建器非确定为**真实残余风险**。
 
 ## 4. 环境与关键配置（t1 实测 + t5 交叉）
 | 变量 | 值 |

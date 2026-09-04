@@ -147,7 +147,7 @@ write_publish_record() {
     echo "- git commit（短）：\`${short}\`"
     echo "- 构建时间：${build_ts}"
     echo "- 环境配置版本（DEPLOY_CONFIG_VERSION）：\`${cfg}\`"
-    echo "- 构建方式：干净 worktree（\`git worktree add\`）→ \`compose build --pull\`"
+    echo "- 构建方式：干净上下文（\`git archive <ref> | tar -x\`，固定 mtime，仅含该引用下已提交源码）→ \`compose build --pull --provenance=false --sbom=false\`"
     echo "- 说明：${note}"
     echo ""
     echo "## 镜像 digest（content Id / repo digest）"
