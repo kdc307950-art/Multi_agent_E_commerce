@@ -13,14 +13,14 @@
 
 | # | 项 | 结论 |
 |---|----|------|
-| 1 | 发布基线 commit/tag | ⚠️ **部分达成但有阻断**：已建 `release/v1.0.0-rc1`→`696444a`（含 t2 迁移修复）；但**接受运行面仍有其他未跟踪/未提交文件**，tag 尚未构成完全忠实基线 |
-| 2 | 生产镜像 digest | ✅ 已构建并记录 api / frontend 的 image id + repo digest（worker/migrate 共用 api 镜像；api 已重建含修复） |
-| 3 | 独立生产栈部署 | ✅/⚠️ **配置全部独立就绪**；migrate 缺陷已修复并复验（全新库 clean migrate 通过），完整栈容器级 bring-up 待受信 TLS/真实 LLM/真实租户就绪后复验 |
+| 1 | 发布基线 commit/tag | ✅ **忠实基线已确立**：`release/v1.0.0-rc1`→`cd743d3`（接受运行面 8ddca48a 已提交 + migrations 修复 696444a + BUSINESS_DATA_BACKEND cd743d3） |
+| 2 | 生产镜像 digest | ✅ 已构建并记录 api / frontend 的 image id + repo digest（worker/migrate 共用 api 镜像；api=5d39f03… 含迁移修复） |
+| 3 | 独立生产栈部署 | ✅ **全栈健康**：compose 迁移 exit 0 + api/worker/frontend/nginx/postgres/redis 全 healthy（api `/api/healthz`=200） |
 | 4 | TLS（受信证书） | 🚫 **BLOCKED-需外部**：现有 certs 为**自签**（CN=preview.local，subject==issuer），非受信 CA |
 | 5 | 独立性验证（红线） | ✅ **独立=true**：库名/密码指纹/数据卷/备份目录/子网/项目名/宿主端口 全部与 preview 不同，且 prod 不触碰 `./data/preview-*` |
-| 6 | 健康与门控 | ✅ **迁移已通过**（全新库 exit 0、三表建立、RLS FORCE + 租户 policy）；fail-closed 设置（ENV=production + AUTH_BACKEND=real + shadow）已确认 & compose 配置 VALID；生产栈完整容器级 healthz 待受信 TLS/真实 LLM/真实租户就绪后复验 |
+| 6 | 健康与门控 | ✅ **生产栈健康 + 门控确认**：ENV=production、AUTH_BACKEND=real、BUSINESS_DATA_BACKEND=postgres、EXECUTION_MODE=shadow、LAUNCH_GATE_STRICT=true；compose config VALID；全容器 healthy |
 
-> **Go/No-Go**：**迁移 blocker 已解除**（`shipping_events` 复合外键已修复并复验，commit `696444a`，见 `MIGRATE_VERIFY.md`）。当前**仍不应 Go**（放量）——受信 CA 证书、真实 LLM 评测/端点、首批书面确认租户**未就绪**（BLOCKED-需外部），且接受运行面**其他**未跟踪/未提交文件尚未 commit 形成完全忠实基线。
+> **Go/No-Go**：**部署面前置已达成**——发布基线已忠实（`release/v1.0.0-rc1`→`cd743d3`，接受运行面已提交）、迁移修复（`shipping_events` 复合外键，696444a）、`BUSINESS_DATA_BACKEND=postgres`（cd743d3）、全新库 compose 迁移 exit 0、全栈容器健康（api `/api/healthz`=200）。**仍不应 Go**（放量）——受信 CA 证书、真实 LLM 评测/端点、首批书面确认租户 **未就绪**（BLOCKED-需外部，见 §7 #4/#5/#6）；EXECUTION_MODE 仍为 shadow（已符合"先 shadow 再 live"门控），真实 LLM 链路也尚未评测。
 
 ---
 
@@ -171,11 +171,12 @@
 - `docker-compose.prod.yml`：`ENV=production`、`AUTH_BACKEND=real`、`STORAGE_BACKEND=postgres`、`EXECUTION_MODE=shadow`、`EXECUTION_PROVIDER=mock`、`LAUNCH_GATE_STRICT=true`、`DEMO_SEED_ENABLED=false`。
 - `docker compose config`（`--env-file deploy/.env.production -f docker-compose.prod.yml`）：**VALID**（`name: after-sales-prod`，服务正确插值）。
 
-### 6.2 生产栈健康 **部分达成（迁移已展平，完整栈仍待 bring-up 复验）**
-- **迁移已修复并展平**（t2 硬化项）：全新 prod-like 库 `migrate_cli` exit 0，三表建立、复合 FK 正确、RLS FORCE + 租户 policy 生效（`MIGRATE_VERIFY.md`）。镜像已重建（`5d39f03…`）。
-- **仍待办**：完整生产栈容器级 bring-up（`docker compose --env-file deploy/.env.production -f docker-compose.prod.yml up -d`）后确认 **api/healthz / frontend / nginx** 健康。因 TLS 非受信（BLOCKED → nginx 443 用自签）、真实 LLM 评测与首批租户未就绪（fail-closed），完整栈在本机以 shadow/mock 可起（预验证），但**正式放行前的受信 TLS + 真实 LLM + 真实租户**仍未提供。
-- 此前失败的根因（`shipping_events` 复合外键）已修复，**不再构成 blocker**。
-- **未实测/未达成项**（如实标注）：生产栈容器级 healthz / RLS 动态复验 / 告警端到端 / 真实 LLM 链路 / 真实外部网关 / 应用侧 Langfuse trace。均属放量前部署期执行项或依赖外部输入。
+### 6.2 生产栈健康 **已达成（全栈容器健康）**
+- **迁移 + 全栈健康（t2 硬化 + BUSINESS_DATA_BACKEND 修复后，compose 实测）**：`docker compose --env-file deploy/.env.production -f docker-compose.prod.yml up -d` 后，`migrate` exit 0（`migrations applied; runtime role and backup role ensured.`），api/worker/frontend/nginx/postgres/redis 全部 **healthy**，`after-sales-prod-nginx-1` 暴露宿主 **8080/8843**。健康端点实测（`PROD_STACK_HEALTH.md`）：nginx `/healthz`(8080)=`200`；api `/api/healthz`(8843)=`200` body=`{"status":"ok"}`；frontend `/`(8843)=`200`；`/api/metrics`(公网)=`404`（内网化正确阻断）。
+- **api 启动另需关键配置**：受限环境（production）launch gate 强制 `BUSINESS_DATA_BACKEND=postgres`（mock 仅限测试），否则 api 启动即 fail-closed。已在 `docker-compose.prod.yml`（api/worker）与 `deploy/.env.production.example` 加入（commit `cd743d3`，生产栈已验证 healthz 200）。
+- **库/RLS/角色**（生产 `after_sales_prod`，owner=migrator）：`orders/shipping_events/policy_documents` 存在；`shipping_events` 复合外键 `shipping_events_tenant_id_order_id_fkey` 正确；三表均 `enabled=true forced=true policies=1`；`app_runtime`/`backup_role`（inherit=false super=false createdb=false createrole=false canlogin=true）最小权限角色。
+- **not 构成 blocker**：`shipping_events` 复合外键（t2）与 `BUSINESS_DATA_BACKEND` 均不阻塞。
+- **仍未实测/属外部输入**（如实标注）：受信 TLS（nginx 443 现用自签，**BLOCKED-需外部**）；真实 LLM 评测/端点（LLM_BACKEND=mock，**BLOCKED-需外部**）；首批书面确认真实租户。以及生产栈 RLS 动态复验 / 告警端到端 / 应用侧 Langfuse trace——放量前部署期执行项。
 
 ---
 
@@ -183,13 +184,13 @@
 
 | # | 前置 | 状态 | 所需输入 |
 |---|------|------|---------|
-| 1 | 接受运行面剩余（sandbox_gateway/sandbox_faults/circuit_breaker/data_source/postgres_data_source 等未跟踪文件 + 其余未提交 `src/` 改动）commit 形成完整忠实基线 | 🚫 BLOCKER | 继续 commit 其余接受运行面 → 干净 tag 冷构建 + 全新库迁移复验 |
-| 2 | 生产镜像基于**忠实基线 + 干净上下文**重建（当前为工作树构建，含迁移修复） | ⚠️ 待重做 | 见 #1 |
-| 3 | 全新库迁移（`shipping_events` 复合外键缺陷） | ✅ **已修复复验**（commit 696444a） | 已做：全新库 migrate exit 0、三表建立、RLS 生效（MIGRATE_VERIFY.md） |
+| 1 | 接受运行面（sandbox_gateway/sandbox_faults/circuit_breaker/data_source/postgres_data_source 等 + 部署配置）commit 形成完整忠实基线 | ✅ **已提交**（commit 8ddca48a，140 文件；+cd743d3 补 BUSINESS_DATA_BACKEND） | 已做：release/v1.0.0-rc1→cd743d3 |
+| 2 | 生产镜像基于**忠实基线 + 干净上下文**重建 | ⚠️ **待干净重做**（当前为工作树构建，代码与基线一致；需 git archive clean-context 使字节级可复现） | 见 #1；`git archive` + `docker build --no-cache` 复现 |
+| 3 | 全新库迁移（`shipping_events` 复合外键缺陷） | ✅ **已修复复验**（commit 696444a） | 已做：compose migrate exit 0、三表建立、RLS 生效（MIGRATE_VERIFY.md） |
 | 4 | 受信 CA 证书链 + 生产域名 | 🚫 BLOCKED-需外部 | 真实域名 + 受信 CA 证书（fullchain+key） |
 | 5 | 真实自托管 LLM 端点 + API key + 网络白名单 + 写操作评测 | 🚫 BLOCKED-需外部 | 真实 LLM 端点/密钥 + `llm_candidate_eval.json`(write_op_pass=true) |
 | 6 | 首批**书面确认**真实租户 + argon2id 登录凭据 | 🚫 BLOCKED-需外部 | release-manager：首批租户书面确认记录 + `hash_login_credentials.py` 产物 |
-| 7 | 生产栈容器级健康（api/healthz→nginx→前端，迁移已展平） | ⚠️ 部分：迁移已通过；完整栈 bring-up 待受信 TLS/真实 LLM/真实租户就绪后复验 | 完整 `up -d` 后复验 api/healthz + nginx |
+| 7 | 生产栈容器级健康（api/healthz→nginx→前端） | ✅ **已验证**（compose 实测全容器 healthy，api/healthz=200） | 已做：PROD_STACK_HEALTH.md |
 | 8 | 告警/RLS/灾备容器实跑复验（部署期执行项） | ⚠️ 未实测 | `docker compose up` 后执行 `deploy/drills/verify_dr_compose.sh` 等 |
 
 > **诚实边界**：本机**无**真实受信 CA 证书、真实域名、真实 LLM 端点与密钥、书面确认的真实租户。故对应项均如实标注 BLOCKED-需外部，绝不伪造"已受信/已放行/已评测/已恢复"。
@@ -205,9 +206,11 @@
 | 独立性验证 | `evidence/prod-go-live/deploy-engineer/INDEPENDENCE.json` |
 | migrate 失败日志（修复前存档） | `evidence/prod-go-live/deploy-engineer/MIGRATE_FAILURE.log` |
 | 【t2 硬化】全新库 clean migrate 复验 | `evidence/prod-go-live/deploy-engineer/MIGRATE_VERIFY.md` |
+| 【T7】生产栈全容器健康 + 健康端点 | `evidence/prod-go-live/deploy-engineer/PROD_STACK_HEALTH.md` |
+| 【T7】忠实基线 commit 范围 | `evidence/prod-go-live/deploy-engineer/BASELINE_COMMIT_SCOPE.md` |
 | 生产注入模板 | `deploy/.env.production.example` |
 | 生产 compose | `docker-compose.prod.yml` |
 | 生产 nginx | `deploy/nginx/prod.conf` |
 | 真实密钥（未入库） | `deploy/.env.production`（已 gitignore） |
 
-*deploy-engineer · T1 交付（含 t2 硬化修复项：`shipping_events` 复合外键，commit `696444a`，全新库 clean migrate 复验通过）。*
+*deploy-engineer · T1 交付（含 t2 硬化修复项 `shipping_events` 复合外键 + BUSINESS_DATA_BACKEND，全新库 clean migrate + 生产栈全容器健康复验）。*

@@ -2,10 +2,10 @@
   "generated_at": "2026-09-04",
   "release_baseline": {
     "tag": "release/v1.0.0-rc1",
-    "commit": "696444a20c5ab5ea5babee24ce7f53832b8e881a",
-    "tree": "c64aed17f9fa7e498c3493e43fe214a1de890ebf",
-    "parent": "3268a1ca128fedf814835095a6dfb5ec36645b55",
-    "note": "已测功能基线 = 7941246 (baseline-prod-1)。本 tag 在 3268a1c 基础上新增 fix(migrations)（commit 696444a）：修正 shipping_events 复合外键（t2 硬化项），全新 prod-like 库 clean migrate 通过（见 MIGRATE_VERIFY.md）。注：接受运行面仍有剩余未跟踪/未提交文件，需完整 commit 后才构成完全忠实基线（见 DEPLOY_BASELINE.md）。"
+    "commit": "cd743d372db4755111d4c64fc0d39e58a783fa09",
+    "tree": "9669ce2513742377dcf7d745e8cfdbb14f5f2075",
+    "parent": "8ddca48a7b5ba1657d5eff362f92f1abd3c01776",
+    "note": "忠实基线：8ddca48a 已提交接受运行面（140 文件、含 sandbox/data-source/RLS 等）+ 部署配置；本 commit(cd743d3) 补 BUSINESS_DATA_BACKEND=postgres（受限环境 launch gate 强制，否则 api 启动 fail-closed）。baseline = 7941246 (已测功能)· 3268a1c(可复现构建)· 696444a(migrations 复合外键修复)· 8ddca48a(接受运行面)· cd743d3(业务读后端)。全新 prod 栈经 compose 迁移 exit 0 + 全容器健康（PROD_STACK_HEALTH.md）。"
   },
   "images": {
     "api": {
