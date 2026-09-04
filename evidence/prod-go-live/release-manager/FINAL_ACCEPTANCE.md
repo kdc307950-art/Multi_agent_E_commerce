@@ -1,131 +1,114 @@
-# 验收结论（FINAL_ACCEPTANCE · release-manager · t6 · 待定稿）
+# 验收结论（FINAL_ACCEPTANCE · release-manager · t6 · 定稿 · rc2）
 
 > **产出国角色**：release-manager（发布经理）· prod-go-live 团队 · 任务 t6
-> **版本状态**：**骨架 + 验收标准定义 + 证据引用占位**；**整体结论未定稿**。
-> 已按 **T5（acceptance-engineer）实测**定稿 **A5 / A10**（其余 A1–A4、A6–A9、A11 待对应 tX 证据/外部输入）。
-> **顺序硬约束（captain 明示）**：验收结论**只能在读到 t1–t5 真实证据后定稿**。因此：
-> - 每条验收标准**结论列**基于真实 t1–t5 生产证据；证据未到者标 **`待 tX 证据，勿假定`**。
-> - **不可在本机闭环**的标准（依赖真实业务/资金/观察/生产栈/QoS）标 `待外部输入` 并写明所需输入；
->   但具体的 `✅ 实测 / ⚠️ 部分 / ❌ BLOCKED` 判据仍需 t1–t5 证据佐证（除纯真理性的外部依赖外）。
-> - 仓库既有 preview/沙箱证据（`[substrate]`）仅作**能力基线参考**，不作生产验收定稿依据。
-> - 定稿：t1–t5 回填后刷新本标准逐条结论，并同步 `GO_NO_GO.md` 整体裁决。
+> **版本状态**：**定稿**（基于 t1–t5 各角色回填的真实证据；逐条结论与整体结论已定稿）。**随 `release/v1.0.0-rc2` 一同提交。**
+> **证据来源**：`evidence/prod-go-live/<role>/`；并交叉引用仓库既有 `[substrate]`（preview/沙箱级）作为能力基线。
+> **证据边界**：本文件所有判定均按四证据边界（边界1 单元测试 / 边界2 Mock·沙箱 / 边界3 PostgreSQL·RLS 实测 / 边界4 真实生产外部依赖）标注，绝不把"一次性库取证"误作"生产栈实机达标"，也不把"mock 引擎"误作"真实模型能力"。定义详见 §〇。
+> **诚实原则**：凡**真实租户书面确认 / 真实资金链路 / 受信 CA / 真实权重模型 / 7 天观察**未获提供，一律如实标注 `❌ BLOCKED-需外部`；凡**生产栈运行时 RLS / 告警端到端复验 / `git archive` clean-context 字节级重建 / mismatch 计数后台实测**未实际执行，一律标注 `部署期执行项`；**独立生产栈容器级带起健康已证实**（`PROD_STACK_HEALTH.md`，T7），绝不虚报、也不缩小。
 
 ---
 
-## 一、验收结论摘要（结论列＝待回填）
+## 〇、四种证据边界（本文件统一口径）
 
-| # | 用户验收标准 | 结论 | 定稿依据 | 主要证据（占位） |
-|---|-------------|:---:|:---:|---------|
-| A1 | **首批真实租户受控闭环** | `待外部输入（业务方签署）` | 非 t1–t5 可产 | `CANARY_TENANT_CONFIRMATION_TEMPLATE.md`；`[substrate]` `deploy/records/CANARY_TENANTS-20260904-030903.md`（现为演示租户） |
-| A2 | **无审批绕过** | `待 T2 证据，勿假定` | T2 | `evidence/prod-go-live/security-auditor/`；`[substrate]` `evidence/sec_dynamic_acceptance-20260904-030405.md`、`tests/test_approval_idempotency.py`(16/16)、`tests/test_execution_engine.py`(21/21) |
-| A3 | **无跨租户** | `待 T2 证据，勿假定` | T2 | `evidence/prod-go-live/security-auditor/`；`[substrate]` `evidence/pg_rls_bypass_probe.json`(B1–B5)、`tests/test_rls_bypass.py -m postgres`(5 passed) |
-| A4 | **无重复执行** | `待 T3 证据，勿假定` | T3 | `evidence/prod-go-live/test-runner/`；`[substrate]` `evidence/sandbox_concurrency_stress.json`(N=256→submit=1)、`evidence/concurrency_stress.json` |
-| A5 | **真实资金链路可对账** | `⚠️ 部分`（沙箱对账机制 `✅ PASS`；**真实资金链路＝待外部输入/未接**） | T5 | `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §3/§4；`[substrate]` `evidence/live_acceptance_summary.md`、`evidence/COMPENSATION_RECONCILIATION_REPORT.md` |
-| A6 | **具备回滚/暂停/人工接管机制** | `待 T3/T2 证据定稿`（机制已定义，实证待回填归档） | T3/T2 | `evidence/prod-go-live/test-runner/`；`[substrate]` `deploy/scripts/rollback.sh`+`DR-20260904030354-rollback.md`、`deploy/OPS_RUNBOOK.md`§3/§4、`ROLLBACK_PAUSE_TAKEOVER.md` |
-| A7 | **只读 + shadow 先于 live** | `待 T1/T5 证据，勿假定` | T1/T5 | `evidence/prod-go-live/deploy-engineer/`+`acceptance-engineer/`；`[substrate]` `PRODUCTION_DEPLOYMENT_record-20260904-030903.md`§4(EXECUTION_MODE=shadow) |
-| A8 | **生产隔离（密钥/库/备份不复用 preview）** | `待 T1 证据，勿假定`（`[substrate]` 提示当前仅 preview） | T1 | `evidence/prod-go-live/deploy-engineer/`；`[substrate]` `PRODUCTION_DEPLOYMENT_record-20260904-030903.md`§0/§1/§4 |
-| A9 | **受信 TLS** | `待 T1 证据，勿假定`（`[substrate]` 提示当前自签名） | T1 | `evidence/prod-go-live/deploy-engineer/`；`[substrate]` `PRODUCTION_DEPLOYMENT_record-20260904-030903.md`§7 |
-| A10 | **真实模型评测 + 能力矩阵执行门控** | `❌ BLOCKED`（真实模型评测：无真实权重端点）＋能力矩阵/写门控 `✅ PASS`（但可写模型为 mock 引擎） | T5 | `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §1/§2；`[substrate]` `evidence/llm_candidate_eval.json`（现为 self-hosted-demo stub） |
-| A11 | **7 天连续观察** | `待外部输入（需先切 live 并观察）` | 非 t1–t5 可产 | `SHADOW_TO_LIVE_GATE.md` S6；`deploy/OPS_RUNBOOK.md`§5；`[substrate]` `deploy/records/DEPLOYMENT_SUMMARY-20260904-030903.md`§二（多处未实测/待观察） |
+| 边界 | 定义 | 证据示例 | 边界内可信度 |
+|:---:|------|---------|-------------|
+| **边界1 单元测试** | `pytest tests/` 纯单测（内存/SQLite，不触真实 PG/外部） | `tests/test_approval_idempotency.py`/`test_tenant_isolation.py`/`test_llm_endpoint_gate.py` | 契约/逻辑层 |
+| **边界2 Mock / 沙箱** | preview mock LLM、`sandbox_gateway` 沙箱、沙箱并发、真实 HTTP 沙箱回执、合成钻取告警 | `evidence/sandbox_concurrency_stress.json`、`acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md`、`tests/test_sandbox_e2e_flow.py` | 系统层行为（非真实资金/权重） |
+| **边界3 PostgreSQL / RLS 实测** | 真实 PostgreSQL 数据面（动态 B1–B5、真实 PG 并发、DR 加密恢复、全新库 clean migrate） | `security-auditor/rls_dynamic_probe.json`、`test-runner/concurrency_stress_pg.json`、`DR_encrypted_restore.md`、`deploy-engineer/MIGRATE_VERIFY.md` | 数据面真实性（对象多为一**次性独立测试库**，非 `after-sales-prod` 专栈实机） |
+| **边界4 真实生产外部依赖** | 真实受信 CA/域名、真实权重模型端点、真实资金渠道、书面确认真实租户、7 天观察 | 无（外部输入未提供）——均 **BLOCKED-需外部** | 仅外部输入到位后成立 |
+
+> **诚实声明**：边界3 的"真实 PG"取证对象多为 **preview 集群 + 一次性独立测试库**（`langgraph_rls_audit__*`/`langgraph_drill`/`after-sales-drill-pg`/`after-sales-prodtest-pg`），属真实 PostgreSQL 数据面技术真实性，但**非 `after-sales-prod` 专栈实机**；生产栈容器级健康已证实（PROD_STACK_HEALTH），但生产栈数据面 RLS/并发/恢复复验仍为**部署期执行项**。边界2 的"真实运行态告警"用受控合成钻取源（`drill-probe`）注入，非真实流量；"可写模型"跑在 mock 引擎，**不构成真实模型能力证明**。RPO 为 pg_dump 周期上界（≤900s），非 PITR/WAL 秒级。
 
 ---
 
-## 二、逐项判定（骨架：标准定义 + 证据引用占位 + 待回填口径）
+## 一、验收结论摘要（定稿）
 
-> 每条为**证据引用占位 + 判定口径**；**结论在 tX 回填后填写**。`[substrate]` 仅作能力基线交叉参考，不作定稿依据。
-
-### A1 首批真实租户受控闭环 —— `待外部输入（业务方签署）`
-- **标准定义**：首批仅放行**经书面确认的真实租户**；确认函签署 + 白名单注入 + 成员/角色授予 + 审计。
-- **证据占位**：`evidence/prod-go-live/release-manager/CANARY_TENANT_CONFIRMATION_TEMPLATE.md`（模板）；`[substrate]` `deploy/records/CANARY_TENANTS-20260904-030903.md`（现为 demo/seed 租户）。
-- **判定口径**：真实租户（业务方）**书面确认函是否回传并签署**。未回传前恒未满足（本仓库不代签）。**非 t1–t5 可产**。
-
-### A2 无审批绕过 —— `待 T2 证据，勿假定`
-- **标准定义**：退款/退货/改址必经唯一 `human_approval`；无 direct 绕过；越权 403 / 跨租户 404 / 缺二次确认 422；拒绝不执行。
-- **证据占位**：`evidence/prod-go-live/security-auditor/<T2 产出>`；`[substrate]` `evidence/sec_dynamic_acceptance-20260904-030405.md`（preview 验收：无审批绕过 ✅）、`tests/test_approval_idempotency.py`(16/16)、`tests/test_execution_engine.py`(21/21)、`src/graph/approval.py`。
-- **判定口径**：在**生产数据面**确证唯一 human_approval 与归属校验；`[substrate]` 仅为 preview 层佐证。
-
-### A3 无跨租户 —— `待 T2 证据，勿假定`
-- **标准定义**：RLS FORCE + NOBYPASSRLS；跨租户读/写/改 tenant_id 零可见/被拒；同租户审批。
-- **证据占位**：`evidence/prod-go-live/security-auditor/<T2 产出>`；`[substrate]` `evidence/pg_rls_bypass_probe.json`(B1–B5)、`tests/test_rls_bypass.py -m postgres`(5 passed)、`evidence/PG_RLS_POLICY_INVENTORY.md`。
-- **判定口径**：在**生产栈**数据面复跑 B1–B5。
-
-### A4 无重复执行 —— `待 T3 证据，勿假定`
-- **标准定义**：同一资金操作只执行一次；`UNIQUE(tenant_id,operation_id)`；单执行守卫；终态封闭；重投放 r重放。
-- **证据占位**：`evidence/prod-go-live/test-runner/<T3 产出>`；`[substrate]` `evidence/sandbox_concurrency_stress.json`(N=256→`provider.submit=1`)、`evidence/concurrency_stress.json`(I1/I2/I3 全 true)、`tests/test_sandbox_concurrency_guard.py`、`tests/test_sandbox_e2e_flow.py`(14 用例)。
-- **判定口径**：在**生产栈**上同 operation 并发 → `provider.submit` 恰 1 次；重复审批收敛；跨租户幂等键互不覆盖。
-
-### A5 真实资金链路可对账 —— `⚠️ 部分`（沙箱对账 `✅ PASS`；真实资金链路＝待外部输入/未接）
-- **标准定义**：非终态收口；不一致/不可核实→转人工；mismatch 计数可观测；**真实资金链路**可对账。
-- **证据（T5 实测，权威）**：
-  - `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §3：网关沙箱**代码/测试级 ✅ PASS**——服务端 SQLite 幂等、回调验签（`tests/test_callback_security_log.py` 6 passed）、reconcile → `MISMATCHED`→`HUMAN_HANDOFF`、compensate 稳定 reversal_id、`gateway_unconfigured` fail-closed、N=256 并发 `provider.submit` 恰 1 次（`evidence/sandbox_concurrency_stress.json`）、`tests/test_sandbox_e2e_flow.py` 14 passed（真实 uvicorn 临时端口）。
-  - §4：preview 运行时 `EXECUTION_MODE=shadow`（不触真实资金）；**生产网关沙箱可用性＝部署期执行项，未部署**（`EXECUTION_PROVIDER=mock`、无 `GATEWAY_BASE_URL`）。
-  - `[substrate]` `evidence/live_acceptance_summary.md`（live 沙箱 41/41）、`evidence/COMPENSATION_RECONCILIATION_REPORT.md`、`deploy/drills/records/drill-api-reconcile.json`。
-- **判定**：**沙箱级对账机制 `✅ PASS`**（含 fail-closed 转人工）；**真实资金链路可对账＝待外部输入（真实资金/网关渠道未接）**，需接入真实渠道并重跑对账；`reconcile_mismatch_total` 计数后台观测与指标打点待补。
-
-### A6 具备回滚/暂停/人工接管机制 —— 机制已定义（实证待回填归档）
-- **标准定义**：① 回滚（恢复快照+版本回退+密钥轮换）② 暂停（停止新请求/关闸）③ 人工接管（带完整状态转人工、只重放不重执行）+ 资金异常立即关 live 转人工。
-- **证据占位**：`evidence/prod-go-live/test-runner/<T3 产出>`（恢复/备份演练）+ `evidence/prod-go-live/security-auditor/<T2 产出>`（fail-closed 转人工取证）；`[substrate]` `deploy/scripts/rollback.sh`+`DR-20260904030354-rollback.md`(t6 实跑)、`deploy/scripts/restore_drill.sh`+`drill-pg-encrypted-restore.json`、`deploy/OPS_RUNBOOK.md`§3/§4、`evidence/llm_fallback_to_human.json`(11 条转人工)、`tests/test_fault_injection.py`(8 例)。
-- **判定口径**：三种机制在**生产栈**上实跑并出具记录；`[substrate]` 已证明机制层可用；生产实机演练按 `OPS_RUNBOOK`§5 复验后归档。
-
-### A7 只读 + shadow 先于 live —— `待 T1/T5 证据，勿假定`
-- **标准定义**：先只读与 shadow 观察，人工复核/对账/业务负责人确认后再切 live；切换受控、可回退。
-- **证据占位**：`evidence/prod-go-live/deploy-engineer/<T1 产出>`（部署模式）+ `acceptance-engineer/<T5 产出>`（live 前置）；`[substrate]` `PRODUCTION_DEPLOYMENT_record-20260904-030903.md`§4(EXECUTION_MODE=shadow/mock)；`SHADOW_TO_LIVE_GATE.md`（S0–S6 分步门控）。
-- **判定口径**：当前 `EXECUTION_MODE=shadow`（未切 live），且流程受控；正式切 live 是否已发生/是否受控。
-
-### A8 生产隔离（密钥/库/备份不复用 preview） —— `待 T1 证据，勿假定`
-- **标准定义**：生产使用独立密钥/数据库/备份位置/证书，不复用 preview。
-- **证据占位**：`evidence/prod-go-live/deploy-engineer/<T1 产出>`（独立生产栈 + 不复用 preview 核验）；`[substrate]` `PRODUCTION_DEPLOYMENT_record-20260904-030903.md`§0(`production 未部署`)/§1/§4(`deploy/.env.preview`)——仅提示，非定稿。
-- **判定口径**：是否部署独立生产栈并核验隔离；未部署/未验证即不满足。
-
-### A9 受信 TLS —— `待 T1 证据，勿假定`
-- **标准定义**：生产使用受信 CA 证书链（非自签名），经 `nginx -t`/端到端 HTTPS 复验。
-- **证据占位**：`evidence/prod-go-live/deploy-engineer/<T1 产出>`；`[substrate]` `PRODUCTION_DEPLOYMENT_record-20260904-030903.md`§7（自签名 CN=preview.local；“生产受信 CA：未配置”）——仅提示。
-- **判定口径**：生产证书链由受信 CA 签发并经端到端校验。
-
-### A10 真实模型评测 + 能力矩阵执行门控 —— `❌ BLOCKED`（真实模型评测）＋能力矩阵/写门控 `✅ PASS`
-- **标准定义**：评测驱动白名单（`base ∩ write_op_pass=true`）；非白名单/未评测模型写 fail-closed；受限环境缺报告即拒绝；**真实权重模型评测通过**。
-- **证据（T5 实测，权威）**：
-  - `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §1：**真实模型评测＝BLOCKED**——preview `LLM_BACKEND=mock`、`LLM_BASE_URL=http://model-endpoint:8001/v1` 但**无对应容器**、host 探测 `127.0.0.1:8001/v1/models` → `WinError 10061（连接被拒绝）`、`self-hosted-model` 为 MockLLM 规则引擎代表（非真实权重）；`evidence/llm_candidate_eval.json` **仅 `self-hosted-demo` stub（write_op_pass=true，cases=1）**，先前全量 24 用例报告**不在磁盘**。
-  - §2：能力矩阵/写门控＝**PASS（逻辑/运行时正确）**——受限环境空白名单/缺报告 → `frozenset()` fail-closed；`capability_ok(self-hosted-demo)=True`、`self-hosted-model=False`；非白名单拒写转人工；`tests/test_llm_endpoint_gate.py` **21 passed**。⚠️ 但可写模型跑在 `LLM_BACKEND=mock`，**不构成真实模型能力证明**；`verify_capability_matrix_t2.py` 因报告缺 `self-hosted-model` 有 **4 项 FAIL**（属报告完整性，非逻辑缺陷）。
-- **判定**：**真实模型评测＝`❌ BLOCKED`**（需自托管真实权重端点 + 重跑评测 + `write_op_pass=true` 报告）；**能力矩阵/写门控＝`✅ PASS`**（但非真实模型能力证明）。
-- **解锁条件**：见 `LLM_GATEWAY_ACCEPTANCE.md` §1.3（部署真实自托管端点 → `evaluate_models.py` → 白名单 `HIGH_CONFIDENCE_MODELS` + 报告 + 端点可用）。
-
-### A11 7 天连续观察 —— `待外部输入（需先切 live 并观察）`
-- **标准定义**：切 live 后连续观察 ≥7 天，看跨租户/重复/回调/介入率/对账/错误率/备份；异常立即关 live。
-- **证据占位**：`SHADOW_TO_LIVE_GATE.md` S6；`deploy/OPS_RUNBOOK.md`§5（每日备份恢复演练）；`deploy/observability/evidence/`；`[substrate]` `deploy/records/DEPLOYMENT_SUMMARY-20260904-030903.md`§二/§五（多处未实测/待观察）。
-- **判定口径**：切 live 后 ≥7 天连续观测记录 + 每日恢复演练 + 告警无异常。**观察期未开始**，非 t1–t5 可产。
+| # | 用户验收标准 | 结论 | 本机闭环？ | 证据边界 | 主要证据 |
+|---|-------------|:---:|:---:|:---:|---------|
+| A1 | **首批真实租户受控闭环** | ❌ **未闭环（BLOCKED-需业务方）** | 否 | 边界4 | `deploy-engineer/DEPLOY_BASELINE.md` §3.1（`LAUNCH_ALLOWED_TENANTS=__NONE_APPROVED_YET__`、`AUTH_LOGIN_CREDENTIALS={}`）；`CANARY_TENANT_CONFIRMATION_TEMPLATE.md` |
+| A2 | **无审批绕过** | ✅ **达成（本机闭环）** | 是 | 边界1 | `security-auditor/RLS_ISOLATION_REPORT.md` §三；`tests/test_approval_idempotency.py`/`test_execution_engine.py`/`test_tenant_isolation.py`/`test_launch_gate_audit.py`（60 passed） |
+| A3 | **无跨租户** | ✅ **达成（本机闭环）** | 是 | 边界1/3 | `security-auditor/rls_dynamic_probe.json`（B1–B5 conclusion=true）；`RLS_ISOLATION_REPORT.md` §一/§二（跨租户读/写/审批 404+越权留痕） |
+| A4 | **无重复执行** | ✅ **达成（本机闭环，真实 PG+沙箱）** | 是 | 边界1/2/3 | `test-runner/concurrency_stress_pg.json`（N=256 submit=1）、`concurrency_stress.json`、`sandbox_concurrency_stress.json`；`test_pg_callback_concurrency.py` 7 passed |
+| A5 | **真实资金链路可对账** | ⚠️ **部分**（沙箱对账 ✅；真实资金链路＝待外部输入/未接） | 否 | 边界2/3（沙箱）＋边界4（真实资金） | `acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §3/§4；`test-runner/reconcile_evidence.json`；`[substrate]` `evidence/live_acceptance_summary.md` |
+| A6 | **具备回滚/暂停/人工接管机制** | ✅ **达成（机制层本机验证）** | 是 | 边界1/2/3 | `test-runner/DR_encrypted_restore.md`（RPO/RTO）；`LLM_GATEWAY_ACCEPTANCE.md` §3（reconcile/compensate→HUMAN_HANDOFF）；`ROLLBACK_PAUSE_TAKEOVER.md`；`OPS_RUNBOOK.md` §3/§4 |
+| A7 | **只读 + shadow 先于 live** | ✅ **达成（有序）** | 是 | 边界2 | `observability-engineer/OBSERVABILITY_REPORT.md` §4（`EXECUTION_MODE=shadow`+mock，未切 live）；`deploy-engineer/DEPLOY_BASELINE.md` §6.1；`SHADOW_TO_LIVE_GATE.md` |
+| A8 | **生产隔离（密钥/库/备份不复用 preview）** | ✅ **配置级**（`independent=true`）+ ✅ **完整 prod 栈带起健康已证实**（T7）+ ⚠️ 生产栈运行时 RLS 复验＝部署期执行项 | 是（配置级）/ 部署期（运行时复验） | 边界3 | `deploy-engineer/INDEPENDENCE.json`（independent=true）；`DEPLOY_BASELINE.md` §3/§5/§6.2/§7#7；`PROD_STACK_HEALTH.md`；`MIGRATE_VERIFY.md` |
+| A9 | **受信 TLS** | ❌ **未闭环（BLOCKED-需外部）** | 否 | 边界4 | `deploy-engineer/DEPLOY_BASELINE.md` §4（自签 CN=preview.local；无受信 CA） |
+| A10 | **真实模型评测 + 能力矩阵执行门控** | ❌ **BLOCKED**（真实模型评测）＋能力矩阵/写门控 ✅ PASS | 部分 | 边界1/2（能力矩阵）+ 边界4（真实模型） | `acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §1/§2（preview mock、端点不可达、self-hosted-model=MockLLM）；`evidence/llm_candidate_eval.json`（stub） |
+| A11 | **7 天连续观察** | ❌ **未闭环（待切 live 后）** | 否 | 边界4 | `observability-engineer/OBSERVABILITY_REPORT.md` §5（7 天监控方案）；`SHADOW_TO_LIVE_GATE.md` S6 |
 
 ---
 
-## 三、整体结论 —— **待定（需 t1–t5 证据回填后定稿）**
+## 二、逐项判定（定稿）
 
-> 按 captain 顺序硬约束，整体结论**只有在读到 t1–t5 真实生产证据后才能定稿**。以下为**草稿预判（非最终）**。
+### A1 首批真实租户受控闭环 —— ❌ 未闭环（BLOCKED-需业务方）
+- **判定**：`LAUNCH_ALLOWED_TENANTS=__NONE_APPROVED_YET__`（fail-closed）、`AUTH_LOGIN_CREDENTIALS={}`（无真实租户哈希）；**无任何真实租户书面确认函**；当前 `TENANT-A/B` 为历史演示租户（新基线已禁用 `seed_default`）。**不可本机闭环**，需真人/业务方签署。
+- **证据**：`evidence/prod-go-live/deploy-engineer/DEPLOY_BASELINE.md` §3.1；`CANARY_TENANT_CONFIRMATION_TEMPLATE.md`。
+- **所需输入**：真实租户（业务方）签署确认函 + `hash_login_credentials.py` 产 argon2id PHC 注入 + `LAUNCH_ALLOWED_TENANTS` 注入 + 成员/角色授予 + 审计。
 
-**草稿预判（倾向，待 t1–t5 证据确认）**：
-- 能力/安全/合规侧（A2、A3、A4、A6、A7）`[substrate]` preview/沙箱层已验证充分，**预测**回填后大概率 `✅/⚠️`；但须 T2/T3 在**生产栈**确证方可定稿。
-- 生产专属 A8/A9（独立栈/受信 CA）`[substrate]` 当前仅 preview/自签名，**预测**在 T1 到位后转 `✅` 否则 `❌`；待 T1。
-- A1（真实租户书面确认）、A11（7 天观察）为**真实外部依赖**，业务方签署/切 live 观察前恒未满足（确定性）。
-- A5（真实资金）、A10（真实权重模型）依赖真实渠道/真实模型，`[substrate]` 证明的是沙箱/契约级，**非真实资金/权重**。
-- **因此草稿整体预判**：**系统能力基线已达（A2/A3/A4/A6/A7），但正式生产上线（A1/A5/A8/A9/A10/A11）尚未闭环**；**倾向暂缓放量**，待外部/生产专属前置闭环后转（有条件）GO。**最终结论待 t1–t5 回填后由本文件 + `GO_NO_GO.md` 定稿。**
+### A2 无审批绕过 —— ✅ 达成（本机闭环）
+- **判定**：退款/退货/改址必经唯一 `human_approval`；无任何 `direct → execute_*` 边；执行节点 5 重复核（含审批状态必须 APPROVED）；二次确认 + CAS 单抢占；拒绝→`REJECTED`/`HUMAN_HANDOFF` 绝不执行；跨租户审批/读取→404+越权留痕。
+- **证据**：`evidence/prod-go-live/security-auditor/RLS_ISOLATION_REPORT.md` §三；`tests/test_approval_idempotency.py`/`test_execution_engine.py`/`test_tenant_isolation.py`/`test_launch_gate_audit.py`（60 passed）。
 
-### 诚实标注（本机不可闭环项 + 所需输入）
-| 项 | 为何不可本机闭环 | 所需输入 |
-|----|------------------|----------|
-| A1 真实租户书面确认 | 签署须真人/业务方 | 真实租户签署确认函 + 白名单注入 + 成员/角色授予 |
-| A5 真实资金链路 | 仅沙箱网关 | 真实资金渠道联调 + 对账重跑 |
-| A8 生产隔离 | 无独立 production 栈 | T1 部署独立生产栈 + 隔离核验记录（待回填） |
-| A9 受信 TLS | 自签名证书 | 受信 CA 证书链 + 复验（待 T1 回填） |
-| A10 真实权重模型 | 端点为规则引擎 | 真实 vLLM/Ollama 端点 + 重跑评测（待 T5 回填） |
-| A11 7 天观察 | 观察期未开始 | 切 live 后 ≥7 天连续观测记录 |
+### A3 无跨租户 —— ✅ 达成（本机闭环）
+- **判定**：真实 PG 动态 B1–B5 全拦；应用层 `resolve_tenant_context`（JWT+成员校验）拒绝客户端租户；跨租户读/写/审批 404 + 越权留痕；联合唯一键隔离同名 order/request id。
+- **证据**：`evidence/prod-go-live/security-auditor/rls_dynamic_probe.json`（conclusion=true）、`RLS_ISOLATION_REPORT.md` §一/§二、`pg_rls_inventory_live.json`。
+
+### A4 无重复执行 —— ✅ 达成（本机闭环，真实 PG+沙箱）
+- **判定**：同 operation 并发 N=256 → `provider.submit=1`、execution record=1；跨租户同幂等键互不覆盖；同 nonce CAS 仅 1 confirmed、其余 replay、终态封闭；FAIL 路径收敛单一 `compensated`。
+- **证据**：`evidence/prod-go-live/test-runner/concurrency_stress_pg.json`（真实 PG N=256）、`concurrency_stress.json`（SQLite N=256）、`sandbox_concurrency_stress.json`（真 HTTP 沙箱）；`test_pg_callback_concurrency.py` 7 passed。
+
+### A5 真实资金链路可对账 —— ⚠️ 部分
+- **判定**：**沙箱级对账 ✅**——入口可达 + 外部未知/无 provider → `MISMATCHED`→`HUMAN_HANDOFF` + 审计留痕（`execution.reconcile.mismatch`、`execution.compensated`）；网关沙箱代码/测试级 PASS（服务端幂等/验签/补偿/对账/gateway_unconfigured fail-closed/N=256 单次提交）；**但真实资金/真实网关渠道未接**，`EXECUTION_MODE=shadow`（不触真实资金），**生产网关沙箱可用性＝部署期执行项/未部署**；mismatch 计数后台未实测。
+- **证据**：`evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §3/§4、`test-runner/reconcile_evidence.json`、`CONCURRENCY_RECOVERY_REPORT.md` §5。
+- **所需输入**：真实资金/网关渠道 + 生产网关沙箱部署 + 对账重跑。
+
+### A6 具备回滚/暂停/人工接管机制 —— ✅ 达成（机制层本机验证）
+- **判定**：① **回滚**：加密备份（RTO=0.643s）+ `rollback.sh`/`restore_drill.sh` + DR 演练记录；② **暂停**：`OPS_RUNBOOK` §3/§4（nginx 摘除/503 + `LAUNCH_ALLOWED_TENANTS` 收紧 + `EXECUTION_MODE=readonly` + worker 停 + 暂停前备份）；③ **人工接管**：`mismatch/human_handoff`→`HUMAN_HANDOFF`、`gateway_unconfigured` fail-closed、补偿失败→转人工、`LLMUnavailableError`→转人工；终态封闭防重复扣款/退款；④ **资金异常立即关 live 转人工**三步动作。机制层已定义且具备实测/记录；生产实机演练为部署期执行项。
+- **证据**：`evidence/prod-go-live/test-runner/DR_encrypted_restore.md`、`deploy/scripts/rollback.sh`、`OPS_RUNBOOK.md` §3/§4、`LLM_GATEWAY_ACCEPTANCE.md` §3、`ROLLBACK_PAUSE_TAKEOVER.md`。
+
+### A7 只读 + shadow 先于 live —— ✅ 达成（有序）
+- **判定**：当前 `EXECUTION_MODE=shadow`、`EXECUTION_PROVIDER=mock`、`LAUNCH_GATE_STRICT=true`；`_run_shadow` 只生成待执行记录+模拟回执（`simulated=true`），不触真实资金；未切 live。
+- **证据**：`evidence/prod-go-live/observability-engineer/OBSERVABILITY_REPORT.md` §4、`deploy-engineer/DEPLOY_BASELINE.md` §6.1、`LLM_GATEWAY_ACCEPTANCE.md` §4；`SHADOW_TO_LIVE_GATE.md`（S0–S6）。
+
+### A8 生产隔离（密钥/库/备份不复用 preview）—— ✅ 配置级 independent=true + ✅ 完整 prod 栈带起健康已证实（T7）
+- **判定**：`INDEPENDENCE.json` `independent=true`（项目/库名/密码指纹/卷/备份目录/子网/宿主端口/nginx/密钥全部与 preview 不同且不相交、不触碰 `./data/preview-*`）；全新 prod-like 库 clean migrate exit 0（17 表、复合 FK 正确、RLS 生效）。**完整 `after-sales-prod` 栈带起健康：✅ 已证实**（`PROD_STACK_HEALTH.md`，T7）——compose `migrate` exit 0、api/worker/frontend/nginx/postgres/redis 全容器 **healthy**、nginx 8080/8843 暴露、api `/api/healthz`(8843)=200、frontend `/`=200、`/api/metrics`(公网)=404（内网化正确阻断）。**⚠️ 生产栈运行时 RLS / 告警端到端复验**（DEPLOY_BASELINE §7#8）为**部署期执行项**；受信 TLS（A9）就绪前不可对外暴露 8080/8843（当前 443 用自签）。
+- **证据**：`evidence/prod-go-live/deploy-engineer/INDEPENDENCE.json`、`DEPLOY_BASELINE.md` §3/§5/§6.2/§7#7、`PROD_STACK_HEALTH.md`、`MIGRATE_VERIFY.md`。
+
+### A9 受信 TLS —— ❌ 未闭环（BLOCKED-需外部）
+- **判定**：现有证书自签（Subject=Issuer=CN=preview.local）；无受信 CA 链。
+- **证据**：`evidence/prod-go-live/deploy-engineer/DEPLOY_BASELINE.md` §4。
+- **所需输入**：真实域名 + 受信 CA 证书链 + `nginx -t`/端到端复验。
+
+### A10 真实模型评测 + 能力矩阵执行门控 —— ❌ BLOCKED（真实模型评测）＋能力矩阵/写门控 ✅ PASS
+- **判定**：① 真实模型评测 `❌ BLOCKED-需外部`：preview `LLM_BACKEND=mock`、`model-endpoint:8001` 无容器、host 探测 `127.0.0.1:8001/v1/models` 连接拒绝、`self-hosted-model`=MockLLM 规则引擎代表（非真实权重）；`evidence/llm_candidate_eval.json` 现仅 `self-hosted-demo` stub（write_op_pass=true,cases=1）。② 能力矩阵/写门控 `✅ PASS`：受限环境空白名单/缺报告→`frozenset()` fail-closed；`capability_ok(self-hosted-demo)=True`、`self-hosted-model=False`；非白名单拒写转人工；`test_llm_endpoint_gate.py` 21 passed。⚠️ 可写模型为 mock 引擎，不构成真实模型能力证明；`verify_capability_matrix_t2.py` 因报告缺 `self-hosted-model` 有 4 项 FAIL（报告完整性）。
+- **证据**：`evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §1/§2 + `LLM_GATEWAY_EVIDENCE.json`。
+
+### A11 7 天连续观察 —— ❌ 未闭环（待切 live 后）
+- **判定**：当前未切 live，观察期未开始。
+- **证据**：`evidence/prod-go-live/observability-engineer/OBSERVABILITY_REPORT.md` §5（7 天监控指标集/看板/任一资金异常关 live 转人工动作）；`SHADOW_TO_LIVE_GATE.md` S6。
+- **所需输入**：切 live 后 ≥7 天连续观测 + 每日恢复演练 + 告警无异常。
 
 ---
 
-## 四、定稿流程（t1–t5 回填后执行）
-1. 读取 `evidence/prod-go-live/{deploy-engineer,security-auditor,test-runner,observability-engineer,acceptance-engineer}/` 产出。
-2. 逐条把 `待 tX 证据` 替换为 `✅/⚠️/❌`，写入实际证据路径与数值。
-3. 对 A1/A11（外部依赖）按是否已有真实回传/观察更新；A5/A10 视真实渠道/真实模型接入情况更新。
-4. 更新整体结论，并与 `GO_NO_GO.md` 整体裁决同步定稿。
-5. 若某角色交付缺失/受阻，`send_message` 通知 Captain；不自行臆断。
+## 三、整体结论（定稿）
 
-## 五、签名
-- 起草：`release-manager`（t6）· **待定稿**
+### `NO-GO`（正式生产上线当前不可放行）／**能力/合规/幂等/可回滚已闭环（GO 的能力基础），受外部输入阻断转有条件 GO**
+
+- **已在本机闭环并验证（✅）**：A2 无审批绕过、A3 无跨租户、A4 无重复执行（真实 PG+沙箱）、A6 具备回滚/暂停/人工接管、A7 只读+shadow 先于 live、A8 生产隔离（配置级 `independent=true` + 完整 prod 栈带起健康**已证实**，PROD_STACK_HEALTH T7）。
+- **不可在本机闭环（❌/⚠️，需外部/部署期输入）**：
+  | 项 | 状态 | 边界 | 原因（所需输入） |
+  |----|:---:|:---:|------|
+  | A1 首批真实租户受控闭环 | ❌ BLOCKED | 边界4 | 需业务方签署书面确认 + 白名单/凭据注入 |
+  | A5 真实资金链路可对账 | ⚠️ 部分 | 边界2/3 + 边界4(真实资金) | 真实资金/网关渠道未接（生产网关沙箱＝部署期执行项） |
+  | A9 受信 TLS | ❌ BLOCKED | 边界4 | 需真实域名 + 受信 CA 证书链 |
+  | A10 真实权重模型评测 | ❌ BLOCKED | 边界1/2 + 边界4(真实模型) | 需真实自托管权重端点 + 评测报告 |
+  | A11 7 天连续观察 | ❌ 待切 live 后 | 边界4 | 观察期未开始 |
+- **诚实标注（本机不可闭环项）**：A1（真实租户书面确认）/A9（受信 TLS）/A10（真实权重模型）/A11（7 天观察）均因**真实外部输入缺失**不可闭环，属**边界4**；A5（真实资金）/A10 相关部分为**边界4 部署期执行项**；A8 的**生产栈运行时 RLS/告警复验**、A6 的**生产栈实机演练**为**部署期执行项**（需在 `after-sales-prod` 部署后实跑复验）。**A8 完整栈带起健康已证实**，不属"未闭环"。
+- **结论**：系统已满足**无审批绕过、无跨租户、无重复执行、可对账（沙箱级）、具备回滚/暂停/人工接管、只读+shadow 先于 live、生产独立栈健康已证实**，构成 **GO 的能力基础**；但正式生产上线（切 live/放量）受 **A1 + A5 + A9 + A10 + A11** 外部输入（边界4）阻断，**当前 NO-GO**。外部输入到位 + 生产栈运行时 RLS/告警复验 + `git archive` clean-context 字节级重建（部署期执行项）通过后转**有条件 GO**（触发清单见 `GO_NO_GO.md` §三）。
+
+---
+
+## 四、签名
+- 验收产出行：`release-manager`（t6）· **定稿**
+- 说明：所有 ✅ 均引用可溯源真实证据；所有 ❌/⚠️ 均给出原因与所需输入，不虚报达标；凡部署期执行项（完整 prod 栈带起健康、运行时告警复验、对账指标重建）均如实标注。与 `GO_NO_GO.md` 整体裁决一致。

@@ -1,5 +1,5 @@
 {
-  "thread_id": "5b48d7ac-8444-4ff4-90dc-315a9221183e",
+  "thread_id": "83f94eb1-c914-44a4-9f63-a2d4ee3f4c1c",
   "steps": [
     {
       "step": "query_policy",
@@ -12,13 +12,13 @@
     },
     {
       "step": "request_refund",
-      "approval_id": "722b7555-6759-4224-9290-f9d9f92ca10b",
-      "operation_id": "f87155ff-3d62-49e5-8cdd-8c1bc0489d4d"
+      "approval_id": "5c50a598-4571-4944-b9bb-a4219774e3da",
+      "operation_id": "cbda0a36-e152-4fc1-b191-5711600c5881"
     },
     {
       "step": "approve_refund",
       "decision": {
-        "operation_id": "f87155ff-3d62-49e5-8cdd-8c1bc0489d4d",
+        "operation_id": "cbda0a36-e152-4fc1-b191-5711600c5881",
         "status": "executed",
         "message": "审批已通过，已执行。"
       }
@@ -26,27 +26,27 @@
     {
       "step": "query_operation",
       "operation": {
-        "operation_id": "f87155ff-3d62-49e5-8cdd-8c1bc0489d4d",
-        "thread_id": "5b48d7ac-8444-4ff4-90dc-315a9221183e",
+        "operation_id": "cbda0a36-e152-4fc1-b191-5711600c5881",
+        "thread_id": "83f94eb1-c914-44a4-9f63-a2d4ee3f4c1c",
         "order_id": "ORD-001",
         "pending_action": "refund",
         "status": "executed",
         "idempotency_key": "oprefund:TENANT-A:ORD-001:E2E-REFUND",
-        "created_at": 1788501591.704864,
+        "created_at": 1788516670.318262,
         "result": {
           "execution_status": "confirmed",
           "mode": "shadow",
-          "execution_id": "86f6c9a4-4ad3-4f90-bada-2be47b1818da",
+          "execution_id": "b7d78618-ee77-4e5b-9d1b-c69aa6f19a95",
           "simulated": true,
           "receipt": {
             "external_txn_id": "txn-c929ed6367bb1eeb",
-            "operation_id": "f87155ff-3d62-49e5-8cdd-8c1bc0489d4d",
+            "operation_id": "cbda0a36-e152-4fc1-b191-5711600c5881",
             "order_id": "ORD-001",
             "amount": 299.0,
             "status": "succeeded",
             "simulated": true,
             "mode": "shadow",
-            "ts": 1788501591.7198822
+            "ts": 1788516670.3285818
           },
           "message": "退款/退货/改址已在 shadow 模式下生成模拟回执。"
         }

@@ -179,7 +179,7 @@ bash deploy/scripts/healthcheck.sh
 - **暂停**：机制已定义（nginx 摘除/503 + `LAUNCH_ALLOWED_TENANTS` 收紧 + `EXECUTION_MODE=readonly` + worker 停/隔离 + 暂停前备份），保留现场。
 - **人工接管**：机制已定义（带完整状态转人工、只重放不重执行、全流程审计）；触发场景与红线均有证据（fail-closed 矩阵 + 故障注入 + live 沙箱）。
 - **资金异常立即关 live**：标准三步动作（关 live → 转人工 → 记录+评估回滚）已定义。
-- **对应门禁（`GO_NO_GO.md`，结论待回填定稿）**：G11 人工审批 `待 T2 证据`、G7 恢复备份 `待 T3 证据`、G6 沙箱网关 `待 T5 证据` → **回滚/暂停/人工接管机制已在机制层定义，且具备 `[substrate]` 实证**（`deploy/scripts/rollback.sh`+`DR-20260904030354-rollback.md`、`deploy/OPS_RUNBOOK.md`§3/§4、`evidence/llm_fallback_to_human.json`(11 条转人工)、`tests/test_fault_injection.py`(8 例)）；但**生产实机演练**仍需在独立生产栈上按 `OPS_RUNBOOK` §5 每日恢复演练 + `verify_dr_compose.sh` 容器实跑复验后归档，方可由 t3 证据定稿。
+- **对应门禁（`GO_NO_GO.md` 定稿）**：G11 人工审批 `✅ 实测`、G7 恢复备份 `✅ 实测`、G6 沙箱网关 `⚠️ 部分` → **"具备回滚/暂停/人工接管机制"达成（机制层本机验证）**：`deploy/scripts/rollback.sh`+`DR-20260904030354-rollback.md`（回滚实跑）、`DR_encrypted_restore.md`（RPO/RTO 实测）、`LLM_GATEWAY_ACCEPTANCE.md` §3（reconcile/compensate→HUMAN_HANDOFF）、`tests/test_fault_injection.py`（8 例）、`evidence/llm_fallback_to_human.json`（11 条转人工）、`OPS_RUNBOOK.md` §3/§4。**生产实机演练**（完整 `after-sales-prod` 栈上每日恢复演练 + `verify_dr_compose.sh` 容器实跑）为**部署期执行项**，需归档后视为端到端闭环。
 
 ## 7. 签名
 - 产出行：`release-manager`（t6）

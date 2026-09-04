@@ -1,34 +1,35 @@
 {
   "generated_at": "2026-09-04",
   "release_baseline": {
-    "tag": "release/v1.0.0-rc1",
-    "commit": "cd743d372db4755111d4c64fc0d39e58a783fa09",
-    "tree": "9669ce2513742377dcf7d745e8cfdbb14f5f2075",
-    "parent": "8ddca48a7b5ba1657d5eff362f92f1abd3c01776",
-    "note": "忠实基线：8ddca48a 已提交接受运行面（140 文件、含 sandbox/data-source/RLS 等）+ 部署配置；本 commit(cd743d3) 补 BUSINESS_DATA_BACKEND=postgres（受限环境 launch gate 强制，否则 api 启动 fail-closed）。baseline = 7941246 (已测功能)· 3268a1c(可复现构建)· 696444a(migrations 复合外键修复)· 8ddca48a(接受运行面)· cd743d3(业务读后端)。全新 prod 栈经 compose 迁移 exit 0 + 全容器健康（PROD_STACK_HEALTH.md）。"
+    "tag": "release/v1.0.0-rc2",
+    "commit": "cde30fb6e95ed8c9f6d5559cb15ec674fe2d0c09",
+    "tree": "current HEAD tree after release-manager evidence commit",
+    "parent": "cd743d372db4755111d4c64fc0d39e58a783fa09",
+    "note": "rc2 baseline commit chain: 7941246 (functional, tested) -> ad168ef/8be2d97/03819a8/3268a1c (reproducible build) -> 696444a (migrations composite FK fix) -> 8ddca48a (accepted runtime surface + deploy config, 140 files) -> cd743d3 (BUSINESS_DATA_BACKEND=postgres, rc1 tag target) -> cde30fb (T1/T7 release baseline evidence + prod stack health). release_baseline.commit records the runtime-surface code baseline cde30fb (src/deploy/evidence all committed; the remaining 6 files are release-manager docs/evidence only, do not affect src runtime surface). Image digests are WORKTREE-BUILT, code==baseline, NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable (elevate to full Admin token or add to docker-users group). See GO_NO_GO G2. Consistency: git rev-parse release/v1.0.0-rc2^{commit} must equal the final commit (containing this evidence); runtime baseline == cde30fb."
   },
   "images": {
     "api": {
-      "service_ref": "api / worker / migrate 共用同一 Django-like 后端镜像",
+      "service_ref": "api / worker / migrate共用同一Django-like后端镜像",
       "tag": "after-sales-prod-api:latest",
       "image_id": "sha256:5d39f030697e1b00ef83fb22a3358ddd2f923be6752a082d9f31d20f4039f293",
       "repo_digest": "after-sales-prod-api@sha256:5d39f030697e1b00ef83fb22a3358ddd2f923be6752a082d9f31d20f4039f293",
-      "build_context": "仓库根 (context=.)，Dockerfile=Dockerfile",
-      "base_image": "docker.1ms.run/library/python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea (digest 钉定)",
+      "build_context": "repository root (context=.), Dockerfile=Dockerfile",
+      "base_image": "docker.1ms.run/library/python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea (digest pinned)",
       "size": "434MB",
       "built_at": "2026-09-04",
-      "caveat": "重建：含 migrations.py 复合外键修复（commit 696444a）。仍基于工作树构建（其余接受文件未 commit），非字节级可复现（需 commit 全部 + git archive clean-context 重建）。"
+      "caveat": "WARNING: worktree-built, contains migrations.py composite FK fix (commit 696444a), code == rc2 runtime baseline. NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable. rc2 not re-tested (observation value inherited from rc1)."
     },
     "frontend": {
       "service_ref": "frontend",
       "tag": "after-sales-prod-frontend:latest",
       "image_id": "sha256:12c35ff738c4b29fba0562c7677d086ab15516cbcaf6a2b53f77dc22b2886cad",
       "repo_digest": "after-sales-prod-frontend@sha256:12c35ff738c4b29fba0562c7677d086ab15516cbcaf6a2b53f77dc22b2886cad",
-      "build_context": "./frontend，Dockerfile=frontend/Dockerfile",
+      "build_context": "./frontend, Dockerfile=frontend/Dockerfile",
       "base_image": "docker.1ms.run/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293",
       "built_at": "2026-09-04",
+      "caveat": "WARNING: worktree-built, code == rc2 runtime baseline. NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable.",
       "args": { "NEXT_PUBLIC_API_BASE_URL": "/api", "API_PROXY_TARGET": "" }
     }
   },
-  "note": "docker build 出口码 1 仅为 BuildKit 进度写 stderr 被 PowerShell 视为错误流；镜像实际已成功命名并 unpack。"
+  "note": "(1) docker build exit code 1 is only BuildKit progress written to stderr, mis-read as error stream by PowerShell; the image was actually successfully named and unpacked. (2) This digest is WORKTREE-BUILT (code == rc2 baseline cde30fb+, contains migration fix); NOT a clean-context byte-reproducible rebuild product, rc2 not re-tested. To achieve byte reproducibility, run `git archive release/v1.0.0-rc2 | tar -x` + `compose build --no-cache --provenance=false --sbom=false` in an environment with Docker engine access, then refresh image_id/repo_digest in this file (see DEPLOY_BASELINE §7#2 / GO_NO_GO G2)."
 }

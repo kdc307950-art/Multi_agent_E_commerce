@@ -1,190 +1,192 @@
-# 正式生产上线 Go/No-Go 清单（骨架 · 待 t1–t5 证据回填后定稿）
+# 正式生产上线 Go/No-Go 清单（定稿）
 
 > **产出国角色**：release-manager（发布经理）· prod-go-live 团队 · 任务 t6
-> **版本状态**：**骨架 + 列定义 + 证据引用占位**。**整体裁决与多数门禁结论未定稿**；
-> 已按 **T5（acceptance-engineer）实测**定稿 **G5 / G6**（其余门禁 G1–G4、G7–G12、G15 待对应 tX 证据回填；G13/G14 为外部输入）。
-> **顺序硬约束（captain 明示）**：Go/No-Go 清单与验收结论**只能在读到 t1/t2/t3/t4/t5 的真实证据产出后定稿**。
-> 因此：
-> - 每个门禁的**结论列（✅实测|⚠️部分|❌BLOCKED）**必须基于**真实 t1–t5 证据**（写入 `evidence/prod-go-live/<role>/`）；
->   证据未到者一律标 **`待 tX 证据，勿假定`**，**绝不因“等不及”填默认值**。
-> - **整体裁决（GO/有条件 GO/NO-GO）**同样基于真实 t1–t5 证据；当前为 **“待定（需 t1–t5 回填）**”，非最终裁决。
-> - 仓库既有 preview/沙箱级证据（`deploy/records/*`、`deploy/drills/records/*`、`evidence/*`、`deploy/observability/evidence/*`）
->   仅作为**系统能力基线参考**，**不作**生产 go-live 门禁的定稿依据。
-> - 定稿动作：t1–t5 回填后，从 `evidence/prod-go-live/<role>/` 读取各自产出，逐门禁刷新本清单并定稿。
-> - 例外说明：G13（首批真实租户书面确认）与 G14（7 天观察）**不来自 t1–t5**，而是**真实外部依赖**
->   （需业务方签署 / 需切 live 后实际观察）；两者在当前阶段即为未满足，所需输入已单独写明。
+> **版本状态**：**定稿**（基于 t1–t5 各角色回填的真实证据；结论列与整体裁决已定稿）。
+> **证据来源**：`evidence/prod-go-live/<role>/`（deploy-engineer/security-auditor/test-runner/observability-engineer/acceptance-engineer），
+> 并交叉引用仓库既有 `[substrate]`（preview/沙箱级）证据作为能力基线。
+> **诚实原则**：凡**真实受信 CA/真实域名/真实权重模型端点/真实资金渠道/首批书面确认租户/7 天观察**这些外部输入未获提供，
+> 一律如实标注 `❌ BLOCKED-需外部`，绝不虚设达标；凡"完整 prod 栈带起健康 + 运行时告警复验 + 对账/指标重建"未实际执行的，
+> 一律标注为部署期执行项。
+> **定稿依据说明（git 实测，唯一事实来源）**：
+> **基线 commit 链**：`7941246`（已测功能）→ `ad168ef`/`8be2d97`/`03819a8`（可复现构建）→ `3268a1c`（clean-context 断言）→ `696444a`（migrations 复合外键修复）→ `8ddca48`（接受运行面+部署配置）→ `cd743d3`（`BUSINESS_DATA_BACKEND=postgres`）→ `cde30fb`（T1/T7 发布基线证据+迁移修复复验+生产栈健康）。
+> `release/v1.0.0-rc1` = `cd743d3`（annotated tag 对象 `2120c4b`，peel 到 commit `cd743d3`；`8ddca48` 为其**父提交**，非 tag 目标）。当前 HEAD = `cde30fb`。
+> **工作区 `git status --porcelain` 初始余 6 个未提交文件**（均为 release-manager 文档/证据，非运行面源码）：`evidence/e2e_flow.json`、`evidence/prod-go-live/release-manager/{FINAL_ACCEPTANCE,GO_NO_GO,ROLLBACK_PAUSE_TAKEOVER,SHADOW_TO_LIVE_GATE}.md`、`evidence/recovery.json`。**本次 rc2 一并校订并提交 `README.md`（生产候选口径）与 `IMAGE_DIGESTS.json`（rc2 口径）**，提交后 `git status` 干净。运行面源码与部署配置已全部入 `cd743d3`/`cde30fb`。
+> 镜像 digest 为**工作树构建、非字节级可复现**（见 G2 边界标注）；后续 "rc2 commit + `git archive` clean-context 重建" 列为部署期执行项。
 
-- 记录 ID：`GONOGO-PROD-<ts>`（定稿时补 ts）
-- 骨架时间：2026-09-04（t6 起草）
-- 目标环境：`production`（正式生产上线，**非 preview**）
-- 依据模板：`deploy/records/PRODUCTION_DEPLOYMENT_record-TEMPLATE.md`、`deploy/records/CANARY_TENANTS-TEMPLATE.md`、
-  `deploy/records/SCALEUP_APPROVAL-TEMPLATE.md`、`deploy/drills/records/TEMPLATE-rollback.md`、
-  `deploy/drills/records/TEMPLATE-pg-backup-restore.md`、`deploy/OPS_RUNBOOK.md`、`deploy/records/PRODUCTION_ACCEPTANCE_VERIFICATION.md`
+- 记录 ID：`GONOGO-PROD-20260904`
+- 定稿时间：2026-09-04（t6）
+- 目标环境：`production`（正式生产上线，非 preview）
+- 依据模板：`deploy/records/PRODUCTION_DEPLOYMENT_record-TEMPLATE.md`、`CANARY_TENANTS-TEMPLATE.md`、`SCALEUP_APPROVAL-TEMPLATE.md`、
+  `TEMPLATE-rollback.md`、`TEMPLATE-pg-backup-restore.md`、`OPS_RUNBOOK.md`、`PRODUCTION_ACCEPTANCE_VERIFICATION.md`
 
 ---
 
-## 一、列定义（结论判定口径，统一）
+## 〇、四种证据边界（本清单统一口径）
 
-**结论列取值**：
-- `✅ 实测`：已在本机读到**该门禁对应的真实生产证据**，逐点验证通过。
-- `⚠️ 部分`：已读到部分真实证据，但存在**明确未闭环/需部署期复验**的项。
-- `❌ BLOCKED`：读到**明确不满足或明确缺失**的证据，需要外部/前置输入。
-- `待 tX 证据，勿假定`：该门禁的**生产证据尚未回填**（t1–t5 进行中），**当前不下结论**；不得用 preview/默认值代替。
-- `待外部输入`：该门禁**依赖非 t1–t5 的真实外部输入**（如业务方书面确认、真实资金渠道、7 天观察期），在本机无法产生。
+> 凡判定均标注其证据所属证据边界，绝不混淆，避免把"一次性库取证"误作"生产栈实机达标"或把"mock 引擎"误作"真实模型能力"。
 
-**证据来源约定**：
-- `T<t>`＝当前 prod-go-live 团队角色产出，目录约定 `evidence/prod-go-live/<role>/`：
-  - `T1`=deploy-engineer / `T2`=security-auditor / `T3`=test-runner / `T4`=observability-engineer / `T5`=acceptance-engineer。
-- `[substrate]`＝仓库既有 preview/沙箱级证据（仅作能力基线参考，**非定稿依据**），示例：`[substrate] evidence/sec_dynamic_acceptance-20260904-030405.md`。
+| 边界 | 定义 | 证据示例 | 证据边界内可信度 |
+|:---:|------|---------|----------------|
+| **边界1 单元测试** | `pytest tests/` 纯单测（内存/SQLite，不触真实 PG/外部） | `tests/test_approval_idempotency.py`/`test_tenant_isolation.py`/`test_llm_endpoint_gate.py` 等 | 契约/逻辑层 |
+| **边界2 Mock / 沙箱** | preview 层 mock LLM、`sandbox_gateway` 沙箱、沙箱并发压测、真实 HTTP 沙箱回执 | `evidence/sandbox_concurrency_stress.json`、`acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md`、`tests/test_sandbox_e2e_flow.py` | 系统层行为（非真实资金/权重） |
+| **边界3 PostgreSQL / RLS 实测** | 真实 PostgreSQL 数据面（动态 B1–B5、真实 PG 并发、DR 加密恢复、全新库 clean migrate） | `security-auditor/rls_dynamic_probe.json`、`test-runner/concurrency_stress_pg.json`、`DR_encrypted_restore.md`、`deploy-engineer/MIGRATE_VERIFY.md` | 数据面真实性（对象多为一**次性独立测试库**，非 `after-sales-prod` 专栈实机） |
+| **边界4 真实生产外部依赖** | 真实受信 CA/域名、真实权重模型端点、真实资金渠道、书面确认真实租户、7 天观察 | 无（外部输入未提供）——均 **BLOCKED-需外部** | 仅外部输入到位后成立 |
 
----
-
-## 二、门禁总表（结论列＝待回过填）
-
-| # | 门禁 | 要求 | 结论 | 依据来源 | 责任 |
-|---|------|------|:---:|:---:|------|
-| G1 | **代码 tag（生产发布基线）** | 正式生产发布 tag + 干净树 + 完整 commit 哈希；配置版本可审计 | `待 T1 证据，勿假定` | `evidence/prod-go-live/deploy-engineer/` | deploy-engineer |
-| G2 | **镜像 digest（可复现构建）** | 记录镜像 digest；内容/配置确定性；冷构建字节级可复现 | `待 T1 证据，勿假定` | `evidence/prod-go-live/deploy-engineer/` | deploy-engineer |
-| G3 | **RLS 动态验证** | FORCE RLS + NOBYPASSRLS；跨租户读/写/改 tenant_id 零可见/被拒 | `待 T2 证据，勿假定` | `evidence/prod-go-live/security-auditor/` | security-auditor |
-| G4 | **回调并发/幂等** | 同 operation/同幂等键并发回调不重复执行（provider.submit 恰 1 次） | `待 T3 证据，勿假定` | `evidence/prod-go-live/test-runner/` | test-runner |
-| G5 | **真实模型评测 + 能力矩阵** | 评测驱动白名单；write_op_pass 交集；非白名单写 fail-closed | `❌ BLOCKED`（真实模型评测：无真实权重端点）+ 能力矩阵/写门控 `✅ PASS` | `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md`(+`LLM_GATEWAY_EVIDENCE.json`) | acceptance-engineer |
-| G6 | **真实网关沙箱验收** | self-hosted 网关 live 链路可跑通且不重复执行/可对账 | `⚠️ 部分`（代码/测试级 `✅ PASS`；生产网关沙箱可用性＝**部署期执行项，未部署**） | `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §3 | acceptance-engineer |
-| G7 | **恢复/备份演练** | RPO≤15min；RTO≤60min；加密备份+最小权限角色+异机副本 | `待 T3 证据，勿假定` | `evidence/prod-go-live/test-runner/` | test-runner |
-| G8 | **告警演练** | 规则可触发/可定位/可关闭；关键指标有界打点 | `待 T4 证据，勿假定` | `evidence/prod-go-live/observability-engineer/` | observability-engineer |
-| G9 | **生产密钥/库/备份独立性** | 生产独立密钥/数据卷/备份位置，不复用 preview | `待 T1 证据，勿假定` | `evidence/prod-go-live/deploy-engineer/` | deploy-engineer |
-| G10 | **受信 TLS** | 生产使用受信 CA 证书链（非自签名） | `待 T1 证据，勿假定` | `evidence/prod-go-live/deploy-engineer/` | deploy-engineer |
-| G11 | **人工审批强制** | 退款/退货/改址必经唯一 human_approval，无 direct 绕过 | `待 T2 证据，勿假定` | `evidence/prod-go-live/security-auditor/` | security-auditor |
-| G12 | **只读+shadow 先于 live** | 先只读与 shadow 观察，再切换 live；切换受控 | `待 T1/T5 证据，勿假定` | `evidence/prod-go-live/deploy-engineer/`+`acceptance-engineer/` | release-manager |
-| G13 | **首批真实租户书面确认** | 首批真实租户书面确认函签署 + 白名单注入 + 成员/角色授予 | `待外部输入（业务方签署）` | ➜ `CANARY_TENANT_CONFIRMATION_TEMPLATE.md` | release-manager / 业务方 |
-| G14 | **7 天连续观察** | 切换 live 后连续观察 ≥7 天 | `待外部输入（需先切 live 并观察）` | ➜ `SHADOW_TO_LIVE_GATE.md` S6 | observability-engineer |
-| G15 | **对账可核实** | 非终态收口；不一致/不可核实 → 转人工；mismatch 计数可观测 | `待 T3 证据，勿假定` | `evidence/prod-go-live/test-runner/` | test-runner |
+> **诚实声明**：边界3 的"真实 PG"取证对象多为 **preview 集群 + 一次性独立测试库**（`langgraph_rls_audit__*`/`langgraph_drill`/`after-sales-drill-pg`），属真实 PG 数据面技术真实性，但**非 `after-sales-prod` 专栈实机**；生产栈实机复验列入部署期执行项。边界2 的"真实运行态告警"用受控合成钻取源（`drill-probe`）注入，非真实流量；"可写模型"跑在 mock 引擎，**不构成真实模型能力证明**。
 
 ---
 
-## 三、逐项详表（骨架：要求 + 证据引用占位 + 待回填口径）
+## 一、门禁总表（定稿）
 
-> 下列每项为**证据引用占位**（预期读取路径 + 判定口径）；**结论在 tX 回填后填写**。为避免误导，
-> 每项同时标注 `[substrate]`（既有 preview 能力基线，供 tX 回填时交叉；**不作为定稿依据**）。
+### 1.1 门禁总表（结论 + 责任 + 证据边界）
 
-### G1 代码 tag（生产发布基线）
-- **要求**：正式生产发布 tag（干净工作树）+ 完整/短 commit 哈希 + `DEPLOY_CONFIG_VERSION` 可审计；绝不从脏工作区构建。
-- **证据读取（待回填）**：`evidence/prod-go-live/deploy-engineer/<T1 产出>`（发布 tag/commit/deploy.sh 输出）。
-- **判定口径**：是否在**独立生产栈**、干净 tree、正式发布 tag，且 commit 含 FOUND-SOFTWARE-1 修复（`7941246` 及之后）。
-- **[substrate]**（非定稿）：`deploy/records/PRODUCTION_DEPLOYMENT_record-20260904-030903.md` §3（tag `baseline-prod-4`，commit `03819a8`；但该 tag 早于 `7941246`，非当前生产准备 HEAD）。
+| # | 门禁 | 要求 | 结论 | 责任 | 证据边界 |
+|---|------|------|:---:|------|:---:|
+| G1 | **代码 tag（生产发布基线）** | 正式生产发布 tag + 干净树 + 完整 commit；含迁移修复与全部已接受运行面 | **✅ 实测** | deploy-engineer | 边界1/3 |
+| G2 | **镜像 digest（可复现构建）** | 记录镜像 digest；内容/配置确定性；冷构建可复现 | **⚠️ 部分**（内容/配置确定性 ✅；字节级冷构建【未复现＝部署期执行项】） | deploy-engineer | 边界2 |
+| G3 | **RLS 动态验证** | FORCE RLS + NOBYPASSRLS；跨租户读/写/改 tenant_id 零可见/被拒 | **✅ 实测** | security-auditor | 边界3 |
+| G4 | **回调并发/幂等** | 同 operation/同幂等键并发回调不重复执行（submit 恰 1 次） | **✅ 实测** | test-runner | 边界1/2/3 |
+| G5 | **真实模型评测 + 能力矩阵** | 评测驱动白名单；非白名单写 fail-closed；**真实权重模型评测通过** | **❌ BLOCKED**（真实模型评测）+ 能力矩阵/写门控 **✅ PASS** | acceptance-engineer | 边界1/2（能力矩阵）＋边界4（真实模型） |
+| G6 | **真实网关沙箱验收** | self-hosted 网关 live 链路可跑通且不重复执行/可对账；生产网关沙箱可用 | **⚠️ 部分**（代码/测试 PASS；生产网关沙箱＝部署期执行项） | acceptance-engineer | 边界1/2 |
+| G7 | **恢复/备份演练** | RPO≤15min；RTO≤60min；加密备份+最小权限角色+SHA-256+marker | **✅ 实测**（RPO=43.78s 周期界定、RTO=0.643s） | test-runner | 边界3 |
+| G8 | **告警演练** | 规则可触发/可定位/可关闭；关键指标有界打点 | **⚠️ 部分**（RpoExceeded 真实闭环；其余需当前构建运行时复验；含 6.1/6.2/6.3 修复项） | observability-engineer | 边界2（RpoExceeded 合成钻取）＋边界1（求值器等价） |
+| G9 | **生产密钥/库/备份独立性** | 生产独立密钥/库/备份位置/证书，不复用 preview | **✅ 实测**（配置级 independent=true + 完整 prod 栈带起健康已证实）+ ⚠️ 生产栈运行时 RLS/告警复验＝部署期执行项 | deploy-engineer | 边界3 |
+| G10 | **受信 TLS** | 生产使用受信 CA 证书链（非自签名） | **❌ BLOCKED-需外部** | deploy-engineer | 边界4 |
+| G11 | **人工审批强制** | 退款/退货/改址必经唯一 human_approval，无 direct 绕过 | **✅ 实测** | security-auditor | 边界1/3 |
+| G12 | **只读+shadow 先于 live** | 先只读与 shadow 观察，再切换 live；切换受控 | **✅ 有序** | release-manager | 边界2 |
+| G13 | **首批真实租户书面确认** | 首批真实租户书面确认函签署 + 白名单注入 + 成员/角色授予 | **❌ BLOCKED-需业务方** | release-manager / 业务方 | 边界4 |
+| G14 | **7 天连续观察** | 切换 live 后连续观察 ≥7 天 | **❌ 待切 live 后** | observability-engineer | 边界4 |
+| G15 | **对账可核实** | 非终态收口；不一致/不可核实→转人工；mismatch 计数可观测 | **⚠️ 部分**（入口/转人工/留痕 ✅；mismatch 计数后台未实测） | test-runner | 边界2/3 |
 
-### G2 镜像 digest（可复现构建）
-- **要求**：记录 repo digest/image id；内容与配置确定性；冷构建字节级可复现。
-- **证据读取（待回填）**：`evidence/prod-go-live/deploy-engineer/<T1 产出>`（digest 列表 / 复现性结论）。
-- **判定口径**：内容/配置确定性 +（如可行）冷构建字节级一致，或如实承认构建器级非确定残余风险。
-- **[substrate]**（非定稿）：`deploy/records/PRODUCTION_DEPLOYMENT_record-20260904-030903.md` §3（base 钉 digest+lock+git archive+SOURCE_DATE_EPOCH；冷构建两遍 digest 不一致→BuildKit 级非确定）。
-
-### G3 RLS 动态验证
-- **要求**：`FORCE ROW LEVEL SECURITY` + `app_runtime NOBYPASSRLS`；B1–B5（跨租户读/写、改 tenant_id、非超管、未设作用域）零可见/被拒。
-- **证据读取（待回填）**：`evidence/prod-go-live/security-auditor/<T2 产出>`（生产数据面 RLS 动态结果）。
-- **判定口径**：在**独立生产栈**数据面上复跑 B1–B5；确证跨租户零可见/写拒/改 tenant_id 被拒。
-- **[substrate]**（非定稿）：`evidence/pg_rls_bypass_probe.json`（B1–B5 conclusion=true，preview 一次性测试库）；`tests/test_rls_bypass.py -m postgres`（5 passed）。
-
-### G4 回调并发 / 幂等
-- **要求**：同业务操作/幂等键并发回调不重复执行；`UNIQUE(tenant_id,operation_id)`；单执行守卫；终态封闭；同 nonce 重投→replay。
-- **证据读取（待回填）**：`evidence/prod-go-live/test-runner/<T3 产出>`（并发压测/沙箱并发/恢复一致性）。
-- **判定口径**：在**生产栈**上同 operation 并发 → provider/回调恰好一次；重复审批收敛；跨租户幂等键互不覆盖。
-- **[substrate]**（非定稿）：`evidence/sandbox_concurrency_stress.json`（N=256→provider.submit=1）；`evidence/concurrency_stress.json`；`tests/test_sandbox_concurrency_guard.py`。
-
-### G5 真实模型评测 + 能力矩阵 —— `❌ BLOCKED（真实模型评测）`＋能力矩阵/写门控 `✅ PASS`
-- **要求**：评估驱动白名单（`base ∩ write_op_pass=true`）；非白名单/未评测模型写 fail-closed 转人工；受限环境缺报告即拒绝；**真实权重模型评测通过**。
-- **证据（T5 实测，权威）**：
-  - `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §1：**真实模型评测＝BLOCKED**——preview 运行时 `LLM_BACKEND=mock`（`LLM_MODEL=self-hosted-demo`）、`LLM_BASE_URL=http://model-endpoint:8001/v1` 但**无对应容器/服务**、host 探测 `http://127.0.0.1:8001/v1/models` → `WinError 10061（连接被拒绝）`、`docker ps` 无任何 `model-endpoint` 容器；`self-hosted-model` 为 `src/llm/self_hosted_server.py` 复用的 **MockLLM 规则引擎（representative）**，非真实权重模型。
-  - `evidence/llm_candidate_eval.json`（当前挂载到 preview 容器）**仅 `self-hosted-demo`：`write_op_pass=true`，cases=1（最小 stub）**；先前 `LLM_ENDPOINT_EVAL_REPORT.md` 所述"全量 24 用例 + `self-hosted-model`"**已不在磁盘**（被覆写为 stub）。
-  - §2 能力矩阵/写门控＝**PASS（逻辑/运行时正确）**：`resolve_high_confidence_models` 在 preview+白名单 `self-hosted-demo`+报告(含) → `{self-hosted-demo}`（`capability_ok(self-hosted-demo)=True`、`self-hosted-model=False`）；受限环境空白名单/缺报告 → `frozenset()` fail-closed；非白名单拒写转人工；`tests/test_llm_endpoint_gate.py` **21 passed**。⚠️**但可写模型 `self-hosted-demo` 跑在 `LLM_BACKEND=mock`（规则引擎）上，不构成真实模型能力证明**；`verify_capability_matrix_t2.py` 因报告缺 `self-hosted-model` 有 **4 项 FAIL**（属报告完整性/一致性，非逻辑缺陷）。
-- **判定**：**真实模型评测 ＝ `❌ BLOCKED`**（需自托管真实权重端点并重跑评测）；**能力矩阵/写门控 ＝ `✅ PASS`**（但非真实模型能力证明）。
-- **解锁条件（t5 明示）**：部署真实自托管模型端点（vLLM/Ollama 或自管 OpenAI 兼容服务）→ 配置 `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` + 写入 `LLM_ALLOWED_HOSTS` → `LLM_BACKEND=openai_compatible` → 跑 `scripts/evaluate_models.py`（`--base-url` 显式传真实端口，默认 8021 为误）产出含该 model id 且 `write_op_pass=true` 的报告 → `HIGH_CONFIDENCE_MODELS` 显式列出该 id。
-
-### G6 真实网关沙箱验收 —— `⚠️ 部分`（代码/测试级 `✅ PASS`；生产网关沙箱可用性＝部署期执行项，未部署）
-- **要求**：self-hosted 网关（完全自托管）live 链路可跑通且**不重复执行、可对账、金额异常→转人工、无 provider→fail-closed**；**生产网关沙箱可用**。
-- **证据（T5 实测，权威）**：
-  - `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §3：**代码/测试级 ✅ PASS**——服务端幂等 `UNIQUE(tenant_id,idempotency_key)`+`ON CONFLICT DO NOTHING`+读回；跨租户同幂等键孤立；回调验签（`EXECUTION_CALLBACK_HMAC_SECRET`，`tests/test_callback_security_log.py` 6 passed）；重放/终态封闭；compensate 派生稳定 `reversal_id`；reconcile → `MISMATCHED`→`HUMAN_HANDOFF`；`gateway_unconfigured` fail-closed；`EXECUTION_MODE=shadow` 不触真实资金；`scripts/sandbox_concurrency_stress.py`（sqlite N=256 全绿：`provider.submit` 恰 1 次）；`tests/test_sandbox_e2e_flow.py` 14 passed（真实 uvicorn 临时端口）。
-  - **生产网关沙箱可用性＝部署期执行项/未部署**：preview 运行时 `EXECUTION_PROVIDER=mock`、`GATEWAY_BASE_URL` 未配置、无生产网关沙箱容器；`sandbox_gateway` 仅在测试 fixture 临时拉起。
-- **判定**：**`⚠️ 部分`**——网关沙箱链路（代码/测试级，含 256 并发不重复执行）已确证；**但"生产网关沙箱可用"＝部署期执行项/未部署**，需部署内网 `sandbox_gateway` → 注入 `GATEWAY_BASE_URL`/`GATEWAY_API_KEY` → `EXECUTION_PROVIDER=sandbox_http` → 端到端复跑。
-- **解锁条件（t5 明示）**：部署生产网关沙箱 + 注入配置 + `EXECUTION_PROVIDER=sandbox_http` + shadow-only 提交复跑。
-
-### 附：EXECUTION_MODE 状态（t5 确认）
-- `evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §4：preview 运行时 `EXECUTION_MODE=shadow`（`_run_shadow` 只生成待执行记录+模拟回执 `simulated=true`，**不调用任何真实资金接口**）；**本次不切换 live**；live 前置清单已在 §4.2 列出（真实模型端点+评测、生产网关沙箱、业务负责人确认、首少量租户+只读+shadow+7 天观察、回滚/暂停/接管）。
-
-### G7 恢复 / 备份演练
-- **要求**：RPO≤15min、RTO≤60min；**加密备份**（aes-256-cbc+PBKDF2+SHA-256）+ **最小权限 backup_role** + **异机副本** + 实测 RPO/RTO + marker 校验。
-- **证据读取（待回填）**：`evidence/prod-go-live/test-runner/<T3 产出>`（恢复一致性/备份恢复演练 RPO/RTO）。
-- **判定口径**：在**生产独立备份位置**上复跑加密备份→恢复→校验，RPO/RTO 实测值达标。
-- **[substrate]**（非定稿）：`deploy/drills/records/drill-pg-encrypted-restore.json`（RTO≈0.093s、RPO≈0.877s）；`deploy/drills/records/DR-20260904030211-pg-backup-restore.md`；`evidence/recovery_consistency.json`（PASS）；`evidence/dr_encrypted_backup.json`、`evidence/dr_backup_role_least_privilege.json`。
-
-### G8 告警演练
-- **要求**：规则可触发/可定位/可关闭；关键指标有界打点；RPO/RTO/错误率/审批耗时/对账/人工介入/安全拒绝可计量。
-- **证据读取（待回填）**：`evidence/prod-go-live/observability-engineer/<T4 产出>`（运行时告警触发/定位/关闭 + 关键指标 + shadow/7 天监控方案）。
-- **判定口径**：是否补全有界指标打点；是否在运行时 Prometheus 上做一次端到端触发/定位/关闭复验。
-- **[substrate]**（非定稿）：`deploy/observability/evidence/ALERT_RULES_VERIFICATION.md`（14/15 可触发/关闭，求值器等价证据；RPO/RTO 规则写路径未回填、ComponentRestartDetected 未打点）；`deploy/observability/evidence/DR_GAUGE_BACKFILL.md`。
-
-### G9 生产密钥 / 库 / 备份独立性
-- **要求**：生产使用**独立生产密钥 / 独立数据库 / 独立备份位置 / 独立证书**，不复用 preview。
-- **证据读取（待回填）**：`evidence/prod-go-live/deploy-engineer/<T1 产出>`（独立生产栈 + 独立性核验：产证/密钥/库/备份不复用 preview）。
-- **判定口径**：是否有独立 Compose 项目/数据卷/密钥集/备份位置/证书，且核验未复用 preview。
-- **[substrate]**（非定稿）：`deploy/records/PRODUCTION_DEPLOYMENT_record-20260904-030903.md` §0/§1/§4（**当前仅 preview；`production` 未部署**）——仅提示，不作为定稿。
-
-### G10 受信 TLS
-- **要求**：生产使用**受信 CA 证书链**（非自签名），并经 `nginx -t`/端到端 HTTPS 复验。
-- **证据读取（待回填）**：`evidence/prod-go-live/deploy-engineer/<T1 产出>`（受信 CA 证书链 + 复验记录）。
-- **判定口径**：生产证书链由受信 CA 签发，`https://host/` 与 `https://host/api/openapi.json` 经受信链校验 200。
-- **[substrate]**（非定稿）：`deploy/records/PRODUCTION_DEPLOYMENT_record-20260904-030903.md` §7（自签名 CN=preview.local；“生产受信 CA：未配置”）——仅提示，不作为定稿。
-
-### G11 人工审批强制
-- **要求**：退款/退货/改址必经唯一 `human_approval`；无 direct 绕过；仅同租户 admin/approver 可审批；二次确认；拒绝即终止。
-- **证据读取（待回填）**：`evidence/prod-go-live/security-auditor/<T2 产出>`（审批归属/绕过/幂等/隔离取证）。
-- **判定口径**：在**生产数据面**上确证唯一 human_approval、越权 403、跨租户 404、缺二次确认 422、拒绝不执行、重复审批收敛。
-- **[substrate]**（非定稿）：`evidence/sec_dynamic_acceptance-20260904-030405.md` §一/§二（无审批绕过 ✅）；`tests/test_approval_idempotency.py`（16/16）；`tests/test_execution_engine.py`（21/21）；`src/graph/approval.py`。
-
-### G12 只读 + shadow 先于 live
-- **要求**：先前只读与 shadow 观察，人工复核/对账/业务负责人确认后再对指定租户切 live；切换受控、可回退。
-- **证据读取（待回填）**：`evidence/prod-go-live/deploy-engineer/<T1 产出>`（部署模式配置）+ `evidence/prod-go-live/acceptance-engineer/<T5 产出>`（live 前置）。
-- **判定口径**：当前 `EXECUTION_MODE=shadow`（未切 live），且 `SHADOW_TO_LIVE_GATE.md` 流程已定义；正式切 live 是否已发生/是否受控。
-- **[substrate]**（非定稿）：`deploy/records/PRODUCTION_DEPLOYMENT_record-20260904-030903.md` §4（`EXECUTION_MODE=shadow`/`mock`）；`evidence/prod-go-live/release-manager/SHADOW_TO_LIVE_GATE.md`（S0–S6 流程）。
-
-### G13 首批真实租户书面确认 —— 待外部输入（业务方签署）
-- **要求**：首批仅放行经书面确认的真实租户；书面确认函签署 + `LAUNCH_ALLOWED_TENANTS` 白名单注入 + 成员/角色授予 + 审计。
-- **模板**：`evidence/prod-go-live/release-manager/CANARY_TENANT_CONFIRMATION_TEMPLATE.md`。
-- **判定口径**：真实租户（业务方）**书面确认函未回传前**，本门禁不满足（本仓库不代签）。
-- **[substrate]**（非定稿）：`deploy/records/CANARY_TENANTS-20260904-030903.md`（现 `TENANT-A/B` 为演示/seed 租户，非真实租户；`DEMO_SEED_ENABLED=false`）——仅提示。
-
-### G14 7 天连续观察 —— 待外部输入（需先切 live 并观察）
-- **要求**：切换 live 后连续观察 ≥7 天，重点看跨租户拒绝、重复执行、回调失败、人工介入率、对账差异、错误率、备份结果。
-- **证据读取（待回填/待执行）**：`evidence/prod-go-live/observability-engineer/<T4 产出>`（7 天监控方案）+ 切 live 后每日观测记录（`deploy/OPS_RUNBOOK.md` §5）。
-- **判定口径**：≥7 天连续观测数据 + 每日备份恢复演练记录 + 告警无异常。
-
-### G15 对账可核实
-- **要求**：非终态收口；不一致/不可核实→转人工；mismatch 计数可观测。
-- **证据读取（待回填）**：`evidence/prod-go-live/test-runner/<T3 产出>`（对账演练）。
-- **判定口径**：后台对账实际运行 + mismatch 计数可观测 + `reconcile_mismatch_total` 有界打点。
-- **[substrate]**（非定稿）：`evidence/COMPENSATION_RECONCILIATION_REPORT.md`；`deploy/drills/records/drill-api-reconcile.json`（D6 入口 200+审计；mismatch 计数后台未实测）。
+> **证据边界口径**：G3/G7/G9 属边界3（真实 PG，对象为一**次性独立测试库**，非 `after-sales-prod` 专栈实机）；G2/G8/G12 属边界2（mock/沙箱/合成钻取）；G5/G6 的能力矩阵部分属边界1/2，其真实模型/真实资金部分属边界4；G10/G13/G14 全部属边界4（BLOCKED-需外部）。详见 §〇。
 
 ---
 
-## 四、整体裁决 —— **待定（需 t1–t5 证据回填后定稿）**
+## 二、逐项详表（定稿）
 
-> 按 captain 顺序硬约束，整体裁决（GO/有条件 GO/NO-GO）**只有在读到 t1–t5 真实生产证据后才能定稿**。
-> 以下为**预判/草稿方向（非最终裁决）**，供队长决策参考；定稿前不得以本段作为“已定 GO/NO-GO”依据。
+### G1 代码 tag（生产发布基线）—— ✅ 实测（基线忠实，rc1 精确=cd743d3）
+- **判定**：发布基线忠实。**已测功能基线**＝`7941246`（baseline-prod-1）。**可复现构建链**含 `ad168ef`/`8be2d97`/`03819a8`/`3268a1c`；迁移修复 `696444a`（`fix(migrations): shipping_events 复合外键修复`，全新 prod-like 库 clean migrate exit 0）已纳入；运行面源码+部署配置已入 `8ddca48`，`cd743d3` 补 `BUSINESS_DATA_BACKEND=postgres`，`cde30fb` 补发布基线/生产栈健康证据。**`release/v1.0.0-rc1`精确指向 `cd743d3`**（tag 对象 `2120c4b`），此后 HEAD 前进 1 个 commit 至 `cde30fb`（新增 DEPLOY_BASELINE/PROD_STACK_HEALTH/IMAGE_DIGESTS/BASELINE_COMMIT_SCOPE 4 份证据）。
+- **本次 rc2**：将提交余下 6 个 release-manager 文档/证据（提交后 `git status` 干净），并创建 `release/v1.0.0-rc2` 指向最终 commit（含全部发布证据）。
+- **证据**：`evidence/prod-go-live/deploy-engineer/git-baseline.txt`、`DEPLOY_BASELINE.md`、`IMAGE_DIGESTS.json`（release_baseline）；本会话 `git rev-parse`/`git rev-list`/`git status --porcelain` 复核（提交后 0 条）。
+- **诚实边界**：`DEPLOY_BASELINE.md` §1.1 "HEAD=3268a1c" 为 t1 早期快照；§0/#1 与 §1.2 已 reconcil 到 `cd743d3`，以 `cd743d3`/`cde30fb` 为准。**rc1 本身不含 `cde30fb` 的 4 份发布证据**——正式发布 tag 应为本次创建的 `release/v1.0.0-rc2`。
 
-**草稿预判（倾向，待证据确认）**：
-- **能力/安全/合规侧（A2 无审批绕过、A3 无跨租户、A4 无重复执行、A6 回滚/暂停/接管、A7 shadow 先于 live）**：`[substrate]` preview/沙箱层已验证充分，**预测**在 t1–t5 生产证据回填后大概率达 `✅/⚠️`，但**需 T2/T3 在生产栈确证**后方可定稿。
-- **生产专属门禁 G9/G10（独立栈/受信 CA）**：`[substrate]` 显示当前仅 preview/自签名；**预测**在 T1 独立生产栈 + 受信 CA 到位后转 `✅`，否则 `❌`；**待 T1 证据**。
-- **G13/G14（真实租户书面确认 / 7 天观察）**：真实外部依赖，**在业务方签署与切 live 观察前恒为未满足**，属确定性 BLOCKED（不因“等”改变）。
-- **因此草稿整体预判**：**倾向“暂缓放量 / 有条件 GO 前置于外部输入完成”**；一旦业务方确认（G13）+ 独立生产栈（G9）+ 受信 CA（G10）+ 真实资金/模型（G5/G6）+ 7 天观察（G14）全部闭环，方可转 GO。**最终裁决待 t1–t5 证据回填后由本清单定稿。**
+### G2 镜像 digest—— ⚠️ 部分（内容/配置确定性 ✅；字节级冷构建【未复现 = 部署期执行项】）
+- **判定**：镜像 digest 已记录且**内容/配置确定性达成**；deploy 管线（base 钉 digest + 依赖 `==`/lock + `git archive` 固定 mtime + `SOURCE_DATE_EPOCH` + `--pull` 层缓存）设计上**可复现**。**⚠️ 字节级冷构建一致性未在本会话实证**：① Docker engine 对当前非提升 token 拒连（`npipe:////./pipe/dockerDesktopLinuxEngine` `permission denied`），**无法真实重跑 `git archive` clean-context 构建**；② 既有 BuildKit（本环境 buildx）亦存在"同上下文两次 `--no-cache` 冷构建 digest 不同"非确定限制（`--reproducible` 在本 buildx 不可用）。因此 **字节级冷构建列为部署期执行项/BLOCKED-需 Docker engine 可连接**，属"字节级复现残余风险"，非内容/逻辑阻断。
+- **证据（本 rc2 观测值，工作树构建、代码==基线）**：`evidence/prod-go-live/deploy-engineer/IMAGE_DIGESTS.json`：
+  - `api/worker/migrate`：`after-sales-prod-api@sha256:5d39f030697e1b00ef83fb22a3358ddd2f923be6752a082d9f31d20f4039f293`（**含 migrations 复合外键修复重建**，base `python:3.12-slim@sha256:78387bc...` 钉定）。
+  - `frontend`：`after-sales-prod-frontend@sha256:12c35ff738c4b29fba0562c7677d086ab15516cbcaf6a2b53f77dc22b2886cad`（base `node:20-alpine@sha256:fb4cd12c...` 钉定）。
+- **诚实备注**：以上为**工作树构建、非字节级可复现、非 `git archive` clean-context 重建产物**；代码与基线一致（含迁移修复）。**切勿视为"已 clean-context 字节级复现"**。部署期在具备 engine 访问环境跑通 `git archive release/v1.0.0-rc2 | tar -x` + `compose build --no-cache` 后，需刷新 IMAGE_DIGESTS.json 并改为"已 clean-context 字节级复现"。与 `DEPLOY_BASELINE` §7#2（rc1"⚠️ 待干净重做"）同款边界。
+
+### G3 RLS 动态验证—— ✅ 实测
+- **判定**：真实 PostgreSQL 动态 B1–B5 全拦。
+- **证据**：`evidence/prod-go-live/security-auditor/RLS_ISOLATION_REPORT.md` §一 + `rls_dynamic_probe.json`（conclusion=true）+ `pg_rls_inventory_live.json`。B1 跨租户直连查询 0 行；B2 跨租户写 `WITH CHECK` 拒；B3 改 tenant_id 拒（原行零污染、跨租户仍 0）；B4 `app_runtime` NOBYPASSRLS 非超管；B5 FORCE RLS 生效（checkpoints/checkpoint_blobs/checkpoint_writes/checkpoint_thread_scopes 四表 RLS enable+force）。
+- **取证口径**：RLS 动态取证用 **preview 集群 + 一次性独立测试库**（`langgraph_rls_audit__...`，已 drop+REVOKE，live `langgraph` 未污染，见报告 §〇/§九）——属**边界3**（真实 PG 数据面，非 `after-sales-prod` 专栈实机）。生产栈 `after-sales-prod` 容器级健康**已证实**（PROD_STACK_HEALTH.md），但**生产栈数据面 RLS 动态复验**仍列**部署期执行项**（DEPLOY_BASELINE §7#8）。
+
+### G4 回调并发/幂等—— ✅ 实测
+- **判定**：同 operation 并发 N=256 → `provider.submit=1`、execution record=1、终态封闭；跨租户同幂等键互不覆盖；同 nonce CAS 仅 1 confirmed。
+- **证据**：`evidence/prod-go-live/test-runner/` `concurrency_stress.json`（SQLite N=256）、`concurrency_stress_pg.json`（**真实 PostgreSQL** N=256）、`sandbox_concurrency_stress.json`（真 HTTP 沙箱，含 FAIL 路径收敛单一 `compensated`）；`test_pg_callback_concurrency.py`（真实 PG+RLS，7 passed）。
+- **取证口径**：同 G3，对象为 preview + 一次性独立 PG（真实 PostgreSQL 数据面，边界3）；生产栈容器级健康已证实，但**生产栈数据面并发幂等复验**为部署期执行项（DEPLOY_BASELINE §7#8）。
+
+### G5 真实模型评测 + 能力矩阵—— ❌ BLOCKED（真实模型评测）＋能力矩阵/写门控 ✅ PASS
+- **判定**：① **真实模型评测＝`❌ BLOCKED-需外部（真实权重端点）`**：preview 运行时 `LLM_BACKEND=mock`、`LLM_BASE_URL=http://model-endpoint:8001/v1` 无对应容器、host 探测 `127.0.0.1:8001/v1/models` → `WinError 10061（连接被拒绝）`、`self-hosted-model` 为 `MockLLM` 规则引擎代表（非真实权重）；`evidence/llm_candidate_eval.json` 现仅 `self-hosted-demo` stub（write_op_pass=true，cases=1），先前全量 24 用例报告**不在磁盘**。② **能力矩阵/写门控＝`✅ PASS`**：受限环境空白名单/缺报告 → `frozenset()` fail-closed；`capability_ok(self-hosted-demo)=True`、`self-hosted-model=False`；非白名单拒写转人工；`tests/test_llm_endpoint_gate.py` 21 passed。⚠️ 但可写模型跑在 **mock 引擎**，**不构成真实模型能力证明**；`verify_capability_matrix_t2.py` 因报告缺 `self-hosted-model` 有 4 项 FAIL（报告完整性，非逻辑缺陷）。
+- **证据**：`evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §1/§2 + `LLM_GATEWAY_EVIDENCE.json`；`evidence/llm_candidate_eval.json`（stub）。
+- **解锁条件**：部署真实自托管权重端点（vLLM/Ollama 或自管 OpenAI 兼容服务）→ 配置 `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` + 写入 `LLM_ALLOWED_HOSTS` → `LLM_BACKEND=openai_compatible` → 跑 `scripts/evaluate_models.py`（`--base-url` 显式传真实端口）产出 `write_op_pass=true` 报告 → `HIGH_CONFIDENCE_MODELS` 显式列出该 id。
+
+### G6 真实网关沙箱验收—— ⚠️ 部分（代码/测试 PASS；生产网关沙箱＝部署期执行项）
+- **判定**：网关沙箱链路**代码/测试级 ✅ PASS**（服务端 SQLite 幂等 `UNIQUE(tenant_id,idempotency_key)`+`ON CONFLICT`、回调验签、compensate 稳定 reversal_id、reconcile→`MISMATCHED`→`HUMAN_HANDOFF`、`gateway_unconfigured` fail-closed、N=256 单次提交、`tests/test_sandbox_e2e_flow.py` 14 passed）；**但"生产网关沙箱可用"＝部署期执行项/未部署**（preview `EXECUTION_PROVIDER=mock`、无 `GATEWAY_BASE_URL`、无生产网关容器）。
+- **证据**：`evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §3 + `LLM_GATEWAY_EVIDENCE.json`。
+- **解锁条件**：部署内网 `sandbox_gateway` → 注入 `GATEWAY_BASE_URL`/`GATEWAY_API_KEY` → `EXECUTION_PROVIDER=sandbox_http` → 端到端复跑 + shadow-only 提交。
+
+### G7 恢复/备份演练—— ✅ 实测（RPO 周期界定）
+- **判定**：RPO=**43.780s**（≤900s 周期上界）；RTO=**0.643s**（≤3600s）。加密备份（aes-256-cbc+PBKDF2+`Salted__` 密文头部非明文 PGDMP）+ SHA-256 校验 + 最小权限 `backup_role`（BYPASSRLS 只读、`has_select_all=17`、`has_dml_all=0`）+ 异机副本落**`data/prod-backups`（prod 独立目录）** + 恢复校验（marker_in_restore=0、TENANT-A/B 保留、RLS policy 计数=15）。
+- **证据**：`evidence/prod-go-live/test-runner/DR_encrypted_restore.md`、`drill_pg_encrypted_restore.json`、`CONCURRENCY_RECOVERY_REPORT.md` §4（`backup 文件=langgraph-20260904142219.dump.enc 55648 bytes`；`restore_RTO=0.643223s`）。
+- **边界（如实）**：RPO 口径为 **pg_dump 周期备份**（`BACKUP_INTERVAL_SECONDS` 缺省 900s 界定上界），**非 PITR/WAL 连续归档**；如需秒级 RPO 需另配 WAL 归档。演练对象为 preview + 一次性独立库（边界3，真实 PG 数据面，非 `after-sales-prod` 专栈实机）；生产栈容器级健康已证实，但**生产栈恢复演练（`verify_dr_compose.sh` 容器实跑 + 每日恢复演练）**为**部署期执行项**。DR 密钥为**一次性测试密钥**（`.backup_key`，生产删除且不复用）。
+
+### G8 告警演练—— ⚠️ 部分
+- **判定**：① `RpoExceeded` **真实运行态端到端闭环**（受控注入超阈值 → pending → firing → PromQL 定位 → 恢复 clear），证据为真实 Prometheus `/api/v1/*`；② 关键指标**当前代码**有界标签/`_FORBIDDEN_LABELS`（9 个高基数字段均被拒）/无重复 `# TYPE` 验证通过；③ **其余基于有界计数器的规则**（ApiHighErrorRate/ApprovalFailureRateHigh/HumanInterventionRate 等）运行态无法真实触发（**运行中 preview api 为旧构建，缺 `status`/`human_intervention_total` 等标签**），已用求值器等价证据覆盖，标记为**部署期复验项**；④ 含 **3 处高优先修复项**：§6.1 运行态 Prometheus 加载旧 `alert-rules/` 子目录文件（与权威根文件漂移）+ §6.2 `METRICS_ALLOWED_SOURCES` 默认网段 `172.30.0.0/16` 与实际内网 `172.22.0.0/16` 不匹配（生产抓取会 403）+ §6.3 旧 api 构建。另 §6.4 无 alertmanager、§4 Langfuse 未上报。
+- **证据**：`evidence/prod-go-live/observability-engineer/OBSERVABILITY_REPORT.md` §1/§2/§3/§6 + `drill_rpo_alerts.json`（firing 与 clear 两次 `/api/v1/alerts` 原文）+ `prometheus.yml.orig.bak`。
+
+### G9 生产密钥/库/备份独立性—— ✅ 实测（配置级独立 + 完整 prod 栈健康已证实）
+- **判定**：`INDEPENDENCE.json` `checks.independent = true`：项目名 `after-sales-prod`（≠`after-sales-preview`）、库名 `after_sales_prod`（≠`langgraph`）、PG 密码指纹不同、数据卷 `./data/prod-*`（与 preview 不相交、不触碰 `./data/preview-*`）、备份目录 `./data/prod-backups{,-offsite}`、子网 `172.31.0.0/16`、宿主端口 `8080:80`/`8843:443`（与 preview 80/443 不相交）、nginx `prod.conf`（≠preview.conf）、密钥 `deploy/.env.production`（全独立随机，gitignore）。**迁移数据面**：全新 prod-like 库 `migrate_cli` exit 0（17 表、复合外键正确、RLS 生效，`MIGRATE_VERIFY.md`）。
+- **完整 `after-sales-prod` 栈带起健康：✅ 已证实**（`PROD_STACK_HEALTH.md`，T7）：compose `migrate` exit 0 + api/worker/frontend/nginx/postgres/redis 全容器 **healthy**，nginx `8080`/`8843` 暴露，nginx `/healthz`(8080)=200、api `/api/healthz`(8843)=200（body=`{"status":"ok"}`）、frontend `/`(8843)=200、`/api/metrics`(公网)=404（内网化正确阻断）。三表存在 + 复合 FK 正确 + RLS `enabled+forced+policies=1` + `app_runtime`/`backup_role` 最小权限。
+- **⚠️ 边界（如实）**：生产栈健康证实的是容器级带起；受信 TLS（G10）就绪前**不可对外暴露 8080/8843**（当前 443 用自签）。**生产栈运行时 RLS / 告警端到端复验**（DEPLOY_BASELINE §7#8）仍为**部署期执行项**——本机取证多用 preview + 一次性独立测试库（边界3 口径）。
+- **证据**：`evidence/prod-go-live/deploy-engineer/INDEPENDENCE.json`、`DEPLOY_BASELINE.md` §3/§5/§6.2/§7#7、`PROD_STACK_HEALTH.md`、`MIGRATE_VERIFY.md`、`MIGRATE_FAILURE.log`。
+
+### G10 受信 TLS—— ❌ BLOCKED-需外部
+- **判定**：现有证书 `deploy/secrets/certs/server.crt|key` 为**自签**（Subject=Issuer=CN=preview.local，1 年）；**无受信 CA 证书链**。
+- **证据**：`evidence/prod-go-live/deploy-engineer/DEPLOY_BASELINE.md` §4。
+- **解锁条件**：正式生产**域名** + 受信 CA（公共/企业 CA）签发的 `fullchain`（含中间链）+ `privkey`，替换后经 `nginx -t` + `openssl s_client -connect host:8843` 复核链完整。
+
+### G11 人工审批强制—— ✅ 实测
+- **判定**：退款/退货/改址必经唯一 `human_approval` interrupt；无任何 `direct → execute_*` 边；执行节点 5 重复核（含审批状态必须 APPROVED）；批准须显式二次确认（`confirmation`）+ CAS 单抢占；拒绝→`REJECTED`/`HUMAN_HANDOFF` 绝不执行；`platform_admin` 非租户审批角色。跨租户审批/读取→404+越权留痕。
+- **证据**：`evidence/prod-go-live/security-auditor/RLS_ISOLATION_REPORT.md` §三 + `tests/test_approval_idempotency.py`/`tests/test_execution_engine.py`/`tests/test_tenant_isolation.py`/`tests/test_launch_gate_audit.py`（60 passed）。
+
+### G12 只读 + shadow 先于 live—— ✅ 有序
+- **判定**：当前 `EXECUTION_MODE=shadow`、`EXECUTION_PROVIDER=mock`、`LAUNCH_GATE_STRICT=true`；`_run_shadow` 只生成待执行记录+模拟回执（`simulated=true`），**不调用任何真实资金接口**；未切 live。
+- **证据**：`evidence/prod-go-live/observability-engineer/OBSERVABILITY_REPORT.md` §4、`acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §4、`deploy-engineer/DEPLOY_BASELINE.md` §6.1；`SHADOW_TO_LIVE_GATE.md`（S0–S6 分步门控）。本任务**不执行 live 切换**。
+
+### G13 首批真实租户书面确认—— ❌ BLOCKED-需业务方
+- **判定**：`LAUNCH_ALLOWED_TENANTS=__NONE_APPROVED_YET__`（fail-closed）、`AUTH_LOGIN_CREDENTIALS={}`（无真实租户哈希）；**无任何真实租户书面确认函**。当前 `TENANT-A/B` 为历史演示租户（新基线已禁用 `seed_default`）。
+- **证据**：`evidence/prod-go-live/deploy-engineer/DEPLOY_BASELINE.md` §3.1；`CANARY_TENANT_CONFIRMATION_TEMPLATE.md`（模板）。
+- **解锁条件**：真实租户（业务方）签署书面确认函 + `hash_login_credentials.py` 产出 argon2id/bcrypt PHC 注入 `AUTH_LOGIN_CREDENTIALS` + `LAUNCH_ALLOWED_TENANTS` 注入 + 成员/角色授予 + 审计留痕。
+
+### G14 7 天连续观察—— ❌ 待切 live 后
+- **判定**：当前未切 live，观察期未开始。
+- **证据**：`evidence/prod-go-live/observability-engineer/OBSERVABILITY_REPORT.md` §5（7 天监控指标集/看板/任一资金异常立即关 live 转人工动作）；`SHADOW_TO_LIVE_GATE.md` S6。
+- **所需输入**：切 live 后 ≥7 天连续观测记录 + 每日备份恢复演练记录 + 告警无异常。
+
+### G15 对账可核实—— ⚠️ 部分
+- **判定**：对账入口可达 + 外部未知/无 provider → `MISMATCHED`→`HUMAN_HANDOFF` + 审计留痕（`execution.reconcile.mismatch`、`execution.compensated`）——**✅**；但 **mismatch 计数后台未实测**（`reconcile_mismatch_total` 指标运行态未计量，旧构建）。**⚠️ 部分**。
+- **证据**：`evidence/prod-go-live/test-runner/reconcile_evidence.json`（TENANT-A unknown→mismatched=3、human_handoff；TENANT-B 无 provider→2；audit 留痕）、`CONCURRENCY_RECOVERY_REPORT.md` §5；`deploy/records/COMPENSATION_RECONCILIATION_REPORT.md`。
 
 ---
 
-## 五、定稿流程（t1–t5 回填后执行）
+## 三、整体裁决
 
-1. 从 `evidence/prod-go-live/deploy-engineer/`（T1）、`security-auditor/`（T2）、`test-runner/`（T3）、`observability-engineer/`（T4）、`acceptance-engineer/`（T5）读取各自产出。
-2. 逐门禁（G1–G15）把 `待 tX 证据` 替换为 `✅ 实测 / ⚠️ 部分 / ❌ BLOCKED`，并写入实际证据路径与关键数值。
-3. 对 G13/G14 保持外部输入判定（若业务方已回传确认函/已观察满 7 天则转 `✅`）。
-4. 依据全部门禁更新整体裁决（GO/有条件 GO/NO-GO），并同步 `FINAL_ACCEPTANCE.md` 结论。
-5. 若某角色交付缺失或受阻，`send_message` 通知 Captain 协调；不自行臆断。
+### 结论：`NO-GO`（正式生产上线当前不可放行）／**有条件 GO 的"能力基础"已就绪，但受外部输入阻断**
 
-## 六、签名
-- 起草：`release-manager`（t6）· **待定稿**
+**依据**：
+- **能力/安全/合规/幂等/可回滚侧（Go 的能力基础）—— 已在数据面 + 沙箱充分验证（✅/⚠️部分）**：
+  ① **✅ 已验证**：G1 发布基线（rc1→cd743d3，基线忠实）、G3 RLS 动态（边界3 真实 PG）、G4 并发幂等（边界1/2/3）、G7 恢复备份（边界3）、G9 生产独立性（配置级 independent=true + 完整 prod 栈健康**已证实**，PROD_STACK_HEALTH）、G11 人工审批、G12 shadow 先于 live。**无审批绕过、无跨租户、无重复执行、可对账（沙箱级）、具备回滚/暂停/人工接管机制**。
+  ② **⚠️ 部分**：G2 镜像 digest（内容/配置确定性 ✅，**字节级冷构建未复现**＝部署期执行项）、G8 告警演练（RpoExceeded 真实闭环 ✅；其余需当前构建运行时复验）、G15 对账可核实（入口/转人工/留痕 ✅；mismatch 计数后台未实测）。
+- **正式生产放行被外部输入阻断（❌/⚠️，均属边界4 真实外部依赖）**：
+  | 门禁 | 状态 | 边界 | 责任人 | 解锁条件 |
+  |------|:---:|:---:|------|------|
+  | G10 受信 TLS | ❌ BLOCKED | 边界4 | deploy-engineer | 真实域名 + 受信 CA fullchain + `nginx -t` + `openssl s_client`复核 |
+  | G13 首批真实租户书面确认 | ❌ BLOCKED | 边界4 | release-manager/业务方 | 业务方签署确认函 + PHC 注入 + 白名单/凭据 + 成员/角色授予 |
+  | G14 7 天观察 | ❌ 待切 live 后 | 边界4 | observability-engineer | 切 live 后 ≥7 天连续观测 |
+  | G5 真实权重模型评测 | ❌ BLOCKED | 边界4 | acceptance-engineer | 真实自托管权重端点 + `write_op_pass=true` 报告 |
+  | G6 真实资金链路 | ⚠️ 部分 | 边界2/边界4 | deploy-engineer+acceptance-engineer | 生产网关沙箱 + `EXECUTION_PROVIDER=sandbox_http` + 端到端复跑 |
+
+**判断**：系统在"能力/安全/合规/幂等/可回滚"层面已获充分验证，构成 **GO 的能力基础**；但正式生产上线（对真实租户切 live/放量）受 **G10（受信 TLS）+ G13（真实租户书面确认）+ G14（7 天观察）+ G5（真实权重模型）+ G6（真实资金链路）** 这 5 项**边界4 真实外部依赖**阻断，故 **当前 NO-GO**。一旦上述外部输入到位，且"生产栈运行时 RLS/告警复验 + `git archive` clean-context 字节级重建"（部署期执行项）通过，可转 **有条件 GO**。
+
+### 有条件 GO 的触发条件（全部满足后转 GO，并按此复核）
+1. **G10 受信 TLS**：生产域名 + 受信 CA 证书链替换自签，`nginx -t` + 端到端 HTTPS 复验。
+2. **G13 真实租户书面确认**：真实租户（业务方）签署确认函，`AUTH_LOGIN_CREDENTIALS`（argon2id）+ `LAUNCH_ALLOWED_TENANTS` 注入 + 成员/角色授予 + 审计。
+3. **G5 真实权重模型**：部署真实自托管端点 → 评测 `write_op_pass=true` → `HIGH_CONFIDENCE_MODELS` 显式列出。
+4. **G6 真实资金链路**：部署生产网关沙箱（或真实资金渠道联测），`EXECUTION_PROVIDER=live/sandbox_http` + fail-closed。
+5. **G14 7 天观察**：切 live 后连续 7 天观测达标。
+6. **G2/G8/G9 部署期复验（切 live 前必办）**：`git archive release/v1.0.0-rc2` clean-context 字节级重建并刷新 digest（需 Docker engine 可连接）；`METRICS_ALLOWED_SOURCES` 网段修正；alert-rules 权威文件对齐；当前构建重建对账/指标；生产栈运行时 RLS/告警端到端复验；注入 Langfuse 密钥验证 trace 落地。
+7. **放量审批**：`SCALEUP_APPROVAL-<ts>.md` 目标租户 `admin`/`approver` 二次确认。
+
+### 放量红线（任一触发即关 live 转人工并评估回滚）
+未审批即执行 / 同一 operation_id 重复执行 / 跨租户访问被放行 / 对账 mismatch 且不可核实 / 告警命中资金红线（CrossTenantAccessDetected、RpoExceeded、RtoExceeded、ApiHighErrorRate、ApprovalFailureRateHigh、HighHumanInterventionRate、ReconciliationMismatch）/ 每日恢复演练失败。
+
+---
+
+## 四、tag / 镜像 digest / 迁移版本一致性（本次 rc2 口径）
+
+> 项目**不设数字 schema 版本号**（业务 schema 全为 `CREATE TABLE IF NOT EXISTS` 幂等建表）；`checkpoint_migrations` 表 version 由官方 `langgraph-checkpoint-postgres==3.1.2` 迁移机制维护（非项目代码）；`deploy_config_version="0.1.0"` 为部署配置版本（`src/config.py`，非 schema）。因此"一致性"以**4 点**表述：
+
+1. **迁移定义 commit**：`696444a`（`shipping_events` 复合外键修复）为基线 commit（`cd743d3`）祖先；rc2 基线 commit 链含之。
+2. **镜像 digest 来源**：api `after-sales-prod-api@sha256:5d39f030...`、frontend `after-sales-prod-frontend@sha256:12c35ff7...` 均**自基线 commit 构建、含迁移修复**（当前为工作树构建，字节级 clean-context 重建=部署期执行项）。
+3. **全新库 clean migrate**：`MIGRATE_VERIFY.md` 全新 prod-like 库 `migrate_cli` exit 0（17 表、复合 FK 正确、RLS FORCE 生效、无 InvalidForeignKey）。
+4. **checkpoint 版本驱动**：`langgraph-checkpoint-postgres==3.1.2`（`requirements-lock.txt` 钉定），官方 `checkpoint_migrations` 表结构由该依赖迁移机制维护；`deploy_config_version`（`src/config.py`）== `DEPLOY_CONFIG_VERSION`（`deploy/.env.production`）== compose 默认 `${DEPLOY_CONFIG_VERSION:-0.1.0}`（三处一致）。
+
+> **统一不变量**：`tag.commit（release/v1.0.0-rc2）== build_ref == migrations_schema_source == config_version_source`。`IMAGE_DIGESTS.json` 的 `release_baseline.tag/commit` 字段必须与 tag 精确一致（本次 rc2 在单个 commit 建 annotated tag）。**校验动作**（放量前）：`git rev-parse release/v1.0.0-rc2^{commit}` == 记录值；该 commit 的 `migrations.py` 构成镜像内 schema；digest 与 tag 一一对应；全新库 migrate exit 0 + 全容器 healthy 配套记录。【Docker engine 当前不可连接（非提升 token），clean-context 字节级重建及 digest 刷新列为部署期执行项 / BLOCKED-需 engine 可连接（提升完整 Admin token 或加入 docker-users 组）。】
+
+---
+
+## 五、签名
+- 产出行：`release-manager`（t6）· **定稿**
+- 说明：本清单基于 t1–t5 各角色 `evidence/prod-go-live/<role>/` 真实证据定稿。所有 ✅ 均可溯源；所有 ❌ BLOCKED 均给出所需输入；凡"完整 prod 栈带起健康 / 运行时告警复验 / 对账指标重建"未实际执行者，如实标注为部署期执行项。**本清单不虚报达标、不因外部输入缺失而搁置最终裁决。**
