@@ -75,6 +75,7 @@ services:
       - ENV=production
       - DEPLOY_CONFIG_VERSION=${DEPLOY_CONFIG_VERSION:-0.1.0}
       - STORAGE_BACKEND=postgres
+      - BUSINESS_DATA_BACKEND=${BUSINESS_DATA_BACKEND:-postgres}
       - AUTH_BACKEND=real
       - AUTH_JWT_SECRET=${AUTH_JWT_SECRET:?AUTH_JWT_SECRET 必须由密钥注入，否则启动 fail-closed}
       - AUTH_JWT_ISSUER=${AUTH_JWT_ISSUER:-after-sales-prod}
@@ -163,6 +164,7 @@ services:
       - LOGIN_TRUSTED_PROXY_DEPTH=${LOGIN_TRUSTED_PROXY_DEPTH:-1}
       - DEMO_SEED_ENABLED=false
       - STORAGE_BACKEND=postgres
+      - BUSINESS_DATA_BACKEND=${BUSINESS_DATA_BACKEND:-postgres}
       - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD:?APP_RUNTIME_PASSWORD 必须由密钥注入}@postgres:5432/${POSTGRES_DB:-after_sales_prod}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
