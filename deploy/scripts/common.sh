@@ -57,10 +57,13 @@ config_version_default() {
   fi
 }
 
-# 从指定 git 引用检出【干净 worktree】到临时目录，并以该 worktree 为 compose 文件与 build context
-# 执行 `compose build`。worktree 只包含该引用下受版本控制的文件（主工作树未跟踪/未提交文件不进入），
-# 从而保证镜像只用「此引用下已提交的源码」构建 → 干净 tag/commit 可独立复现。
-# 构建后收集各服务镜像 digest（内容 Id，可复现性指纹）到全局数组 BUILD_DIGESTS，并清理 worktree。
+# 从指定 git 引用物化【干净构建上下文】到临时目录：用 `git archive <ref> | tar -x -C <dir>`
+# 把该引用下**已提交的受控文件**导出到临时目录，并以该目录为 compose 文件与 build context 执行 `compose build`。
+# 关键：`git archive` 导出的文件带**提交时间 mtime**（与克隆/检出时间无关），因此两次不同时间归档的同一 ref
+# 其文件 mtime 完全一致 → COPY/RUN 层的 tar DiffID 不再随检出时间漂移；配合 base 钉 digest + 依赖 lock
+# + SOURCE_DATE_EPOCH + --provenance=false --sbom=false 可达成**冷构建（--no-cache）字节级可复现**。
+# 且 git archive 只含已提交的受控文件（不含未跟踪/临时产物），天然满足「干净」要求；repo_is_dirty 拒绝逻辑保留在 deploy.sh。
+# 构建后收集各服务镜像 digest（内容 Id，可复现指纹）到全局数组 BUILD_DIGESTS，并清理临时目录。
 # 用法：build_from_worktree <ref> [project-name]
 #   project-name 缺省为 compose 项目名 `after-sales-preview`（与 docker-compose.preview.yml 的 name: 一致）。
 BUILD_DIGESTS=()
@@ -71,40 +74,34 @@ build_from_worktree() {
   full="$(git_ref_commit "$ref")"
   if [ -z "$full" ]; then die "git 引用不存在：$ref（无法解析为 commit）。"; fi
 
-  wt="$(mktemp -d)" || die "无法创建临时目录用于干净 worktree。"
-  # git worktree add 允许目标目录为空或不存在；mktemp 建了空目录，直接复用。
-  if ! git -C "$REPO_ROOT" worktree add --detach "$wt" "$full" >/dev/null 2>&1; then
+  wt="$(mktemp -d)" || die "无法创建临时目录用于归档构建上下文。"
+  # 用 git archive 物化该 ref 的已提交文件（mtime=提交时间，确定）；不用 git worktree add（其文件 mtime=检出时间，随检出差）。
+  if ! git -C "$REPO_ROOT" archive "$full" | tar -x -C "$wt" 2>/dev/null; then
     rm -rf "$wt" 2>/dev/null || true
-    git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
-    die "无法从引用 ${ref}（${full}）创建干净 worktree（是否无提交权限/引用不可用？）。"
+    die "无法从引用 ${ref}（${full}）用 git archive 物化构建上下文（tar 解包失败？）。"
   fi
 
-  # 任何退出都清理 worktree，避免残留。
-  cleanup_wt() {
-    git -C "$REPO_ROOT" worktree remove --force "$wt" >/dev/null 2>&1 \
-      || git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
-    rm -rf "$wt" 2>/dev/null || true
-  }
-  # 正常返回时也清理（die 用 exit 不触发 RETURN，需在其前的显式 cleanup_wt 处理）。
-  trap cleanup_wt RETURN
+  # 任何退出都清理临时目录，避免残留。
+  cleanup_ctx() { rm -rf "$wt" 2>/dev/null || true; }
+  # 正常返回时也清理（die 用 exit 不触发 RETURN，需在其前的显式 cleanup_ctx 处理）。
+  trap cleanup_ctx RETURN
 
   compose_file="$wt/docker-compose.preview.yml"
   if [ ! -f "$compose_file" ]; then
-    cleanup_wt; die "worktree 缺少 compose 文件：$compose_file（该引用下无 docker-compose.preview.yml？）。"
+    cleanup_ctx; die "归档上下文缺少 compose 文件：$compose_file（该引用下无 docker-compose.preview.yml？）。"
   fi
 
-  log "用干净 worktree 构建（引用 $ref / $full）：$wt"
+  log "用 git archive 物化构建上下文（引用 $ref / $full）：$wt"
   (
-    # 以 worktree 目录为 CWD：compose 相对路径（context:. 、context:./frontend、./deploy/* 挂载）
-    # 均以该引用下的文件为基准解析；ENV_FILE/密钥文件仍用真实绝对/仓库相对路径注入。
-    # --provenance=false --sbom=false：关闭 BuildKit 的 provenance/attestation 清单，使镜像
-    #   manifest-list / repo digest 字节级可复现（否则 attestation 清单含随机 provenance，digest 漂移）。
+    # 以归档目录为 CWD：compose 相对路径（context:. 、context:./frontend、./deploy/* 挂载）
+    # 均以该引用下已提交文件为基准解析；ENV_FILE/证书仍用真实仓库绝对/相对路径注入。
+    # --provenance=false --sbom=false：关闭 BuildKit provenance/attestation 清单（否则其含随机 provenance 使 digest 漂移）。
     cd "$wt" || exit 1
     "$DOCKER" compose --env-file "$ENV_FILE" -f "$compose_file" build --pull --provenance=false --sbom=false
   )
   rc=$?
   if [ "$rc" -ne 0 ]; then
-    cleanup_wt; die "worktree 构建失败（exit=$rc）。回滚/复查：docker compose -f \"$compose_file\" build"
+    cleanup_ctx; die "归档上下文构建失败（exit=$rc）。回滚/复查：docker compose -f \"$compose_file\" build"
   fi
 
   # 收集镜像 content digest（可复现指纹）；本地构建先落 image id，入 registry 后为 RepoDigest。
@@ -116,8 +113,8 @@ build_from_worktree() {
     BUILD_DIGESTS+=("${svc}=${d}")
   done
 
-  cleanup_wt
-  log "干净 worktree 构建完成（引用 $ref / $full）：API/build context 均来自该引用的已提交源码。"
+  cleanup_ctx
+  log "git archive 构建上下文完成（引用 $ref / $full）：build context 均来自该引用已提交源码（固定 mtime）。"
 }
 
 # 生成一份发布记录（Markdown）：含 Git commit(full+short)、镜像 digest、构建时间、配置版本、
