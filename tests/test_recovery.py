@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import tempfile
 import time
 from pathlib import Path
 
@@ -69,7 +70,9 @@ def test_celery_worker_task_visible():
 
 
 def _write_recovery(restore_seconds: float, rpo_seconds: float, bytes_backup: int) -> None:
-    out = Path(os.environ.get("DSH_EVIDENCE_DIR", "evidence"))
+    # 默认写系统临时目录，避免测试污染仓库 evidence/；仅 DSH_EVIDENCE_DIR 显式指定时写正式证据。
+    dest = os.environ.get("DSH_EVIDENCE_DIR")
+    out = Path(dest) if dest else Path(os.path.join(tempfile.gettempdir(), "dsh_evidence"))
     out.mkdir(parents=True, exist_ok=True)
     (out / "recovery.json").write_text(
         json.dumps({"rpo_seconds": rpo_seconds, "rto_restore_seconds": restore_seconds,

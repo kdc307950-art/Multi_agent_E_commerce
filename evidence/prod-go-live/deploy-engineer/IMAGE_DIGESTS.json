@@ -1,11 +1,11 @@
 {
   "generated_at": "2026-09-04",
   "release_baseline": {
-    "tag": "release/v1.0.0-rc2",
+    "tag": "release/v1.0.0-rc3",
     "commit": "cde30fb6e95ed8c9f6d5559cb15ec674fe2d0c09",
     "tree": "current HEAD tree after release-manager evidence commit",
     "parent": "cd743d372db4755111d4c64fc0d39e58a783fa09",
-    "note": "rc2 baseline commit chain: 7941246 (functional, tested) -> ad168ef/8be2d97/03819a8/3268a1c (reproducible build) -> 696444a (migrations composite FK fix) -> 8ddca48a (accepted runtime surface + deploy config, 140 files) -> cd743d3 (BUSINESS_DATA_BACKEND=postgres, rc1 tag target) -> cde30fb (T1/T7 release baseline evidence + prod stack health). release_baseline.commit records the runtime-surface code baseline cde30fb (src/deploy/evidence all committed; the remaining 6 files are release-manager docs/evidence only, do not affect src runtime surface). Image digests are WORKTREE-BUILT, code==baseline, NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable (elevate to full Admin token or add to docker-users group). See GO_NO_GO G2. Consistency: git rev-parse release/v1.0.0-rc2^{commit} must equal the final commit (containing this evidence); runtime baseline == cde30fb."
+    "note": "rc3 baseline (runtime-surface baseline UNCHANGED from rc2, since rc3 is a release-docs/tests/gitignore-only closure on top of fa7c9a3: it does NOT alter the src/deploy image runtime surface). rc3 tag points to the release closure commit containing this evidence; release_baseline.commit records the runtime-surface code baseline cde30fb. A commit cannot reference its own hash, so release_baseline.commit (image code baseline) and the release tag are intentionally distinct, exactly as established at rc2 (tag=release/v1.0.0-rc2 -> bca4861; runtime baseline = cde30fb). Consistency: git rev-parse release/v1.0.0-rc3^{commit} returns the closure commit; image code baseline == cde30fb. rc2 baseline commit chain: 7941246 (functional, tested) -> ad168ef/8be2d97/03819a8/3268a1c (reproducible build) -> 696444a (migrations composite FK fix) -> 8ddca48a (accepted runtime surface + deploy config, 140 files) -> cd743d3 (BUSINESS_DATA_BACKEND=postgres, rc1 tag target) -> cde30fb (T1/T7 release baseline evidence + prod stack health). release_baseline.commit records the runtime-surface code baseline cde30fb (src/deploy/evidence all committed; the remaining 6 files are release-manager docs/evidence only, do not affect src runtime surface). Image digests are WORKTREE-BUILT, code==baseline, NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable (elevate to full Admin token or add to docker-users group). See GO_NO_GO G2."
   },
   "images": {
     "api": {
@@ -17,7 +17,7 @@
       "base_image": "docker.1ms.run/library/python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea (digest pinned)",
       "size": "434MB",
       "built_at": "2026-09-04",
-      "caveat": "WARNING: worktree-built, contains migrations.py composite FK fix (commit 696444a), code == rc2 runtime baseline. NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable. rc2 not re-tested (observation value inherited from rc1)."
+      "caveat": "WARNING: worktree-built, contains migrations.py composite FK fix (commit 696444a), code == rc3 runtime baseline (cde30fb, runtime surface unchanged since rc2; rc3 is docs/tests/gitignore only). NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable. rc3 not re-built (digest observation value inherited from rc1/rc2 code baseline)."
     },
     "frontend": {
       "service_ref": "frontend",
@@ -27,9 +27,9 @@
       "build_context": "./frontend, Dockerfile=frontend/Dockerfile",
       "base_image": "docker.1ms.run/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293",
       "built_at": "2026-09-04",
-      "caveat": "WARNING: worktree-built, code == rc2 runtime baseline. NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable.",
+      "caveat": "WARNING: worktree-built, code == rc3 runtime baseline (cde30fb, runtime surface unchanged since rc2; rc3 is docs/tests/gitignore only). NOT byte-reproducible, NOT a git archive clean-context rebuild product. clean-context byte rebuild = deploy-time execution item / BLOCKED-requires Docker engine reachable.",
       "args": { "NEXT_PUBLIC_API_BASE_URL": "/api", "API_PROXY_TARGET": "" }
     }
   },
-  "note": "(1) docker build exit code 1 is only BuildKit progress written to stderr, mis-read as error stream by PowerShell; the image was actually successfully named and unpacked. (2) This digest is WORKTREE-BUILT (code == rc2 baseline cde30fb+, contains migration fix); NOT a clean-context byte-reproducible rebuild product, rc2 not re-tested. To achieve byte reproducibility, run `git archive release/v1.0.0-rc2 | tar -x` + `compose build --no-cache --provenance=false --sbom=false` in an environment with Docker engine access, then refresh image_id/repo_digest in this file (see DEPLOY_BASELINE §7#2 / GO_NO_GO G2)."
+  "note": "(1) docker build exit code 1 is only BuildKit progress written to stderr, mis-read as error stream by PowerShell; the image was actually successfully named and unpacked. (2) This digest is WORKTREE-BUILT (code == rc3 runtime baseline cde30fb, runtime surface unchanged since rc2, contains migration fix); NOT a clean-context byte-reproducible rebuild product, rc3 not re-built. To achieve byte reproducibility, run `git archive release/v1.0.0-rc3 | tar -x` + `compose build --no-cache --provenance=false --sbom=false` in an environment with Docker engine access, then refresh image_id/repo_digest in this file (see DEPLOY_BASELINE §7#2 / GO_NO_GO G2)."
 }

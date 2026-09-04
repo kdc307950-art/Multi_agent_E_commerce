@@ -1,7 +1,7 @@
 # 电商售后多智能体工单系统 — 项目索引页（README · 生产候选版）
 
 > **项目**：电商售后多智能体工单系统（E-commerce After-Sales Multi-Agent Ticket System）
-> **一句话定位**：基于 **LangGraph 主控 + CrewAI 子智能体 + Agentic RAG + 人工审批** 的售后工单系统。当前已达成**生产候选基线**：完整源码 + 独立生产栈 `after-sales-prod` 实测全容器健康（api/worker/frontend/nginx/postgres/redis，api `/api/healthz`=200）+ PostgreSQL/RLS 数据面已接入并通过真实 PG 验收 + 发布 tag `release/v1.0.0-rc2`（→ 基线尖端，见 git tag）+ 镜像 digest 已记录。**正式生产放量当前为 `NO-GO`**——待受信 TLS、真实自托管 LLM 权重端点+评测、首批书面确认真实租户、7 天观察等**真实外部依赖（边界4）**到位后，转有条件 GO。本文档为项目入口/索引，按图索骥。
+> **一句话定位**：基于 **LangGraph 主控 + CrewAI 子智能体 + Agentic RAG + 人工审批** 的售后工单系统。当前已达成**生产候选基线**：完整源码 + 独立生产栈 `after-sales-prod` 实测全容器健康（api/worker/frontend/nginx/postgres/redis，api `/api/healthz`=200）+ PostgreSQL/RLS 数据面已接入并通过真实 PG 验收 + 发布 tag `release/v1.0.0-rc3`（→ 基线尖端，见 git tag）+ 镜像 digest 已记录。**正式生产放量当前为 `NO-GO`**——待受信 TLS、真实自托管 LLM 权重端点+评测、首批书面确认真实租户、7 天观察等**真实外部依赖（边界4）**到位后，转有条件 GO。本文档为项目入口/索引，按图索骥。
 > **用途**：本目录为项目的**完整交付包**，可交作业、答辩、评审、部署。本文档为入口/索引。
 
 ---
@@ -102,19 +102,19 @@
 |---|---|---|
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
-| 自动化测试 | **全量 pytest：320 passed, 34 skipped, 70 errors**（424 collected，28.85s，EXIT=1；**t1 实测**）。**70 errors 全部**为沙箱清理 `tmp_path` 的 `PermissionError [WinError 5]` **环境权限问题，0 个真失败**（测试逻辑全过）。注：`390 passed / 1 skipped` 为 `PRODUCTION_ACCEPTANCE_VERIFICATION` 干净环境（非 PG）基线**投影**（＝320+修好 70 个 tmpdir 环境错误），本沙箱不可实现，**仅为投影值**，与实测不矛盾但不混同，不采信为实测。 | `pytest tests/`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、OpenAPI 契约锁死、SQLite 持久化、执行引擎并发、沙箱网关、Postgres/RLS 数据面（边界1/3）。（注：既往记录另有 278 passed,16 skipped / 196 passed,1 skipped，为不同阶段快照，以本会话实测为准） |
+| 自动化测试 | **全量 pytest：390 passed, 34 skipped**（424 collected，54.63s，EXIT=0；**发布基线环境实测**）。34 skipped = **33 项 PostgreSQL 数据面测试**（无 `DATABASE_URL`，需启动 PostgreSQL 并设置 `DATABASE_URL` 后运行）+ **1 项 CrewAI 真实调用链测试**（`test_hardening_acceptance.py:384`，本环境未安装 crewai 故跳过）。此前记录的 `320 passed, 34 skipped, 70 errors` 均为**受限沙箱清理 `tmp_path` 的 `PermissionError [WinError 5]` 环境权限问题**所致（70 errors 均属环境问题、0 个真失败；发布基线环境无此限制），故修正后实测 390/34。 | `pytest tests/`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、OpenAPI 契约锁死、SQLite 持久化、执行引擎并发、沙箱网关、Postgres/RLS 数据面（边界1/3）。测试默认写系统临时目录，不污染 `evidence/`；`DSH_EVIDENCE_DIR` 显式指定时由独立验收脚本生成正式证据。 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
 | 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0` 在独立 venv 导入+对象构造验收通过，**未与 langgraph 同环境验证共存** |
 | 前端 | **容器内构建成功** | `docker build frontend` 成功（Next.js 14.2.5 `Ready`，`/` 返回 200）；本机 npm 受安全策略限制，故在容器内构建验证 |
 | Docker Compose（preview） | **本机实机验证** | 已 `docker compose up` 启动 postgres:17-alpine/redis:7-alpine/api/frontend/worker 并验证：postgres `SELECT version` 通过、redis `PONG`、api `:8000` openapi 200 + 退款触发 `approval_required`、frontend `:3000` 200 |
 | **独立生产栈 `after-sales-prod`** | **全容器健康（边界3 专栈实机）** | `PROD_STACK_HEALTH.md`（T7）：compose `migrate` exit 0 + api/worker/frontend/nginx/postgres/redis 全 **healthy**，nginx `8080`/`8843` 暴露，api `/api/healthz`(8843)=200、frontend `/`=200、`/api/metrics`(公网)=404（内网化正确阻断）；受信 TLS 就绪前不可对外暴露 8080/8843 |
 | PostgreSQL/RLS | **已接入并验证（边界3）** | `PostgresStore + TenantScopedCheckpointer + RLS` 已入库并经真实 PG 验收（数据面 12 项通过）；`DEPLOY_BASELINE` §6.2/PROD_STACK_HEALTH：生产栈 RLS FORCE + 租户 policy 生效；`MIGRATE_VERIFY` 全新 prod-like 库 clean migrate exit 0（17 表、复合 FK、无 InvalidForeignKey）|
-| 发布基线 | **已确立（边界1/3）** | `release/v1.0.0-rc1` → `cd743d3`（历史）、**`release/v1.0.0-rc2` → 基线尖端**（当前发布候选；含迁移修复 `696444a`、`BUSINESS_DATA_BACKEND` `cd743d3`、`59e37f2`(rc2 定稿历史)）；镜像 digest 已记录（api `5d39f030...`、frontend `12c35ff7...`，工作树构建、字节级 clean-context 重建=部署期执行项）；功能基线 `7941246` |
+| 发布基线 | **已确立（边界1/3）** | `release/v1.0.0-rc1` → `cd743d3`（历史）、`release/v1.0.0-rc2` → `fa7c9a3`（历史、不可移动）、**`release/v1.0.0-rc3` → 基线尖端**（当前发布候选；含迁移修复 `696444a`、`BUSINESS_DATA_BACKEND` `cd743d3`、阶段一 rc3 收口——测试默认写临时目录 + 真实 390/34 口径 + uv.lock 不入库）；镜像 digest 已记录（api `5d39f030...`、frontend `12c35ff7...`，工作树构建、字节级 clean-context 重建=部署期执行项）；功能基线 `7941246` |
 | 长期记忆（Graphiti/Neo4j） | **未接入** | 属后续阶段，依赖其版本/许可/自托管验证，不承诺（设计态） |
 | 能力矩阵 / CrewAI 子智能体 | **Mock 层验证（边界2）** | 写操作门控与审批流在工作流层验证；真实 `crewai==0.152.0` 子智能体集成待验收 |
 | **自托管 LLM 端点接入** | **代码就位 + 本地验收（边界2）+ 真实权重 BLOCKED（边界4）** | `src/llm/self_hosted_server.py`、`EndpointGuard`（网络白名单）、脱敏日志、评测驱动白名单；`verify_llm_chain.py` 三验收项通过。**真实模型权重尚未接入**（边界4 BLOCKED），写白名单需以真实端点跑 `scripts/evaluate_models.py` 后按报告注入 |
 
-**结论（生产候选版）**：系统**已达成生产候选基线**——PostgreSQL/RLS 数据面已接入并验证、独立生产栈 `after-sales-prod` 全容器健康、发布基线忠实（rc2 以基线尖端为锚）、镜像 digest 可复现记录。**正式生产放量当前 `NO-GO`**，受**边界4 真实外部依赖**阻断：受信 TLS（A9/G10）、真实自托管 LLM 权重端点+评测（A10/G5）、首批书面确认真实租户（A1/G13）、7 天观察（A11/G14）、真实资金链路（A5/G6）。外部输入到位 + 生产栈运行时 RLS/告警复验 + clean-context 字节级重建后转有条件 GO（详见 `evidence/prod-go-live/release-manager/GO_NO_GO.md`）。
+**结论（生产候选版）**：系统**已达成生产候选基线**——PostgreSQL/RLS 数据面已接入并验证、独立生产栈 `after-sales-prod` 全容器健康、发布基线忠实（**rc3 以基线尖端为锚**）、镜像 digest 可复现记录。**正式生产放量当前 `NO-GO`**，受**边界4 真实外部依赖**阻断：受信 TLS（A9/G10）、真实自托管 LLM 权重端点+评测（A10/G5）、首批书面确认真实租户（A1/G13）、7 天观察（A11/G14）、真实资金链路（A5/G6）。外部输入到位 + 生产栈运行时 RLS/告警复验 + clean-context 字节级重建后转有条件 GO（详见 `evidence/prod-go-live/release-manager/GO_NO_GO.md`）。
 
 ---
 

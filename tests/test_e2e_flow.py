@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 
 from tests.conftest import bearer
@@ -136,6 +137,8 @@ def test_role_based_data_visibility(client):
 
 
 def _write_evidence(evidence: dict) -> None:
-    out = Path(os.environ.get("DSH_EVIDENCE_DIR", "evidence"))
+    # 默认写系统临时目录，避免测试污染仓库 evidence/；正式 evidence/ 仅由独立验收脚本在 DSH_EVIDENCE_DIR 显式指定时生成。
+    dest = os.environ.get("DSH_EVIDENCE_DIR")
+    out = Path(dest) if dest else Path(os.path.join(tempfile.gettempdir(), "dsh_evidence"))
     out.mkdir(parents=True, exist_ok=True)
     (out / "e2e_flow.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")

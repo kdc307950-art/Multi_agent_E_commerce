@@ -8,6 +8,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# 统一依赖锁（唯一生产锁为 requirements-lock.txt；uv.lock 为本地工具产物，禁止进入发布路径）
+uv.lock
+
 # Data / runtime artifacts
 *.db
 *.db-journal
