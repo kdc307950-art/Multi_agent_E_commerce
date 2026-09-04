@@ -28,15 +28,16 @@ def main() -> None:
         )
     engine = create_engine(_to_sqlalchemy_url(migrate_url), pool_pre_ping=True)
     migrations.initialize_all(engine)
-    # 迁移/运行角色分离：创建/更新运行角色（需 CREATEROLE/超级用户）。
+    # 迁移/运行角色分离：创建/更新运行角色 + 最小权限备份角色（需 CREATEROLE/超级用户）。
     try:
         migrations.apply_runtime_role(engine, password=settings.app_runtime_password)
-        print("migrations applied; runtime role ensured.")
+        migrations.apply_backup_role(engine, password=settings.backup_role_password)
+        print("migrations applied; runtime role and backup role ensured.")
     except Exception as exc:  # noqa: BLE001
         if settings.is_restricted_env:
-            # 受限环境运行角色缺失会导致 api/worker 无法连接，属必败配置 → fail-closed。
-            raise SystemExit(f"受限环境未能将运行角色 app_runtime 就绪：{exc}") from exc
-        print(f"migrations applied; runtime role skipped: {exc}")
+            # 受限环境运行/备份角色缺失会导致 api/worker 或备份失败，属必败配置 → fail-closed。
+            raise SystemExit(f"受限环境未能将运行角色/备份角色就绪：{exc}") from exc
+        print(f"migrations applied; runtime/backup role skipped: {exc}")
     finally:
         engine.dispose()
 

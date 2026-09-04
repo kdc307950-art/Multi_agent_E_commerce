@@ -41,6 +41,12 @@ def verify_launch_gate(settings) -> dict[str, Any]:
     if settings.execution_mode == "live" and settings.execution_provider == "mock":
         violations.append("EXECUTION_MODE=live 且 execution_provider=mock："
                           "首次上线只允许 shadow 沙箱，禁止真实资金/业务网关。")
+    # live + sandbox_http：接入完全自托管的网关沙箱（不触真实资金）是允许的；但缺 base_url 属
+    # 配置不全，应 fail-closed（绝不静默回退 mock）。
+    if settings.execution_mode == "live" and settings.execution_provider == "sandbox_http" \
+            and not (getattr(settings, "gateway_base_url", "") or "").strip():
+        violations.append("EXECUTION_MODE=live 且 execution_provider=sandbox_http："
+                          "未配置 GATEWAY_BASE_URL，沙箱网关不可达（fail-closed）。")
     if not settings.launch_require_approval:
         violations.append("LAUNCH_REQUIRE_APPROVAL=false：退款/退货/改址必须仅审批后执行。")
     if not settings.launch_full_audit:
@@ -50,6 +56,11 @@ def verify_launch_gate(settings) -> dict[str, Any]:
     if settings.storage_backend != "postgres":
         violations.append(f"STORAGE_BACKEND={settings.storage_backend}："
                           "首次上线应使用 PostgreSQL 数据面（持久化 + RLS）。")
+    # Mock 业务数据源仅限测试环境：受限环境必须配置为 postgres（订单/物流/政策读真实库 +
+    # 服务端注入 tenant_id + RLS），否则视为未接入受控真实系统。
+    if settings.is_restricted_env and getattr(settings, "business_data_backend", "mock") != "postgres":
+        violations.append("BUSINESS_DATA_BACKEND=mock（受限环境）：业务读路径未接入受控真实系统，"
+                          "Mock 仅限测试环境；受限环境应配置为 postgres。")
     return {
         "allowed_tenants": sorted(allow) if allow else ["*"],
         "not_ok_count": len(violations),

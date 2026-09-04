@@ -1,0 +1,29 @@
+{
+  "scenario": "模型不可用/非白名单 → 敏感写 fail-closed",
+  "base_url": "http://127.0.0.1:8001/v1",
+  "model": "self-hosted-model",
+  "sse_events": [
+    "accepted",
+    "node",
+    "node",
+    "node",
+    "node",
+    "node",
+    "node",
+    "node",
+    "node",
+    "token",
+    "error"
+  ],
+  "error_payload": [
+    {
+      "code": "intent_classification_failed",
+      "message": "当前请求需要人工处理。",
+      "retryable": false,
+      "operation_id": null
+    }
+  ],
+  "operations": [],
+  "execution_count": 0,
+  "accepted": true
+}

@@ -35,12 +35,120 @@ from src.core.types import (
     Tenant,
     TenantStatus,
 )
-from src.execution.types import ExecutionMode, ExecutionRecord, ExecutionStatus
+from src.execution.types import (
+    CallbackAtomicOutcome,
+    ExecutionMode,
+    ExecutionRecord,
+    ExecutionStatus,
+    can_transition,
+)
+from src.execution.verification import normalize_callback_payload
 
 @dataclass
 class _OperationRecord:
     rec: dict
     __slots__ = ("rec",)
+
+
+def plan_callback_atomic(record: ExecutionRecord, *, nonce: str, payload: dict,
+                         now: float) -> dict:
+    """纯函数：根据锁内读取的执行记录与回调载荷，计算原子回调的应用计划（不触 DB）。
+
+    三后端（Memory/Sqlite/Postgres）的 `apply_callback_atomic` 用同一计划在同一事务/临界区
+    原子应用，保证「nonce 记账 + 状态 CAS + 操作更新 + 审计写入」不会中途分散提交产生状态不一致。
+
+    reason 取值见 `CallbackAtomicOutcome`（不含 signature_invalid/bad_payload，属 engine 层）；
+    若调用方查不到执行记录，由其自行返回 `not_found`（本函数只处理已定位到的记录）。
+    返回计划 dict 字段：
+      reason / applied / status / receipt / claimed_nonce / next_status / expected_status /
+      book_nonce / operation_id / operation_status / operation_result / update_fields /
+      audit_action / audit_detail
+    """
+    cb_amount = payload.get("amount")
+    base_audit = {"nonce": nonce, "ext_status": payload.get("status"), "amount": cb_amount}
+
+    def plan(*, reason: str, applied: bool, status: str | None = None,
+             next_status: ExecutionStatus | None = None, receipt: dict | None = None,
+             operation_status: OperationStatus | None = None,
+             operation_result: dict | None = None, update_fields: dict | None = None,
+             claimed_nonce: str | None = None) -> dict:
+        # book_nonce：需要把本次 nonce 写入执行记录（首次记账 / 异 nonce 合法后续 / 新回调）。
+        book_nonce = next_status is not None or reason == "processing"
+        return {
+            "reason": reason,
+            "applied": applied,
+            "status": status if status is not None else record.status.value,
+            "next_status": next_status,
+            "expected_status": record.status,
+            "receipt": receipt,
+            "claimed_nonce": claimed_nonce,
+            "book_nonce": book_nonce,
+            "operation_id": record.operation_id,
+            "operation_status": operation_status,
+            "operation_result": operation_result,
+            "update_fields": update_fields or {},
+            "audit_action": f"execution.callback.{reason}",
+            "audit_detail": {"reason": reason, "applied": applied, **base_audit},
+        }
+
+    # 非重放窗口：与已记账 nonce 完全一致的重投 → 重放（无论是否终态，只重放不重复生效）。
+    recorded_nonce = record.callback_nonce
+    if recorded_nonce is not None and recorded_nonce == nonce:
+        return plan(reason="replay", applied=False, claimed_nonce=recorded_nonce)
+    # 终态封闭：异/新 nonce 落在终态记录上 → terminal_locked，绝不覆盖终态。
+    if record.is_terminal:
+        return plan(reason="terminal_locked", applied=False, claimed_nonce=recorded_nonce)
+
+    # 金额一致性：回调金额与执行记录不一致 → 冲突转人工对账（记账后落到 mismatch 终态收口）。
+    if cb_amount is not None and record.amount is not None and float(cb_amount) != record.amount:
+        return plan(reason="amount_mismatch", applied=False,
+                    next_status=ExecutionStatus.MISMATCHED,
+                    status=ExecutionStatus.MISMATCHED.value,
+                    operation_status=OperationStatus.HUMAN_HANDOFF,
+                    operation_result={"execution_status": ExecutionStatus.MISMATCHED.value,
+                                      "message": "回调金额与执行记录不一致，已转人工对账。"},
+                    update_fields={"last_error": "amount_mismatch", "confirmed_at": now},
+                    claimed_nonce=nonce)
+
+    mapping = normalize_callback_payload(record.status.value, payload)
+    next_status = ExecutionStatus(mapping["next"])
+    if next_status == record.status:
+        # 中间态（processing/unknown）：保持现状，仅记账（计入对账窗口，等待最终回调）。
+        return plan(reason="processing", applied=False, claimed_nonce=nonce)
+
+    if not can_transition(record.status, next_status):
+        # 状态跃迁非法：几乎总是「该执行已被另一回调/补偿流程推进」（如失败回调先到的
+        # FAILED_DISPATCHED、或已确认的 CONFIRMED）。此处**绝不覆写/改写既有流程**——否则会
+        # 干扰补偿/确认的干净收口、并残留 last_error。一律按并发竞争/终态封闭拒绝
+        # （terminal_locked，applied=False，不回执、不记账、不写审计、不改状态），
+        # 让首个合法跃迁的一方继续收口到唯一确定终态。异常/需人工对账的场景由对账任务与
+        # 金额一致性分支（amount_mismatch，发生在 SUBMITTED 才是业务确凿）各自处理。
+        return plan(reason="terminal_locked", applied=False,
+                    claimed_nonce=recorded_nonce or nonce)
+
+    confirmed_at = now
+    if next_status is ExecutionStatus.CONFIRMED:
+        receipt = {"external_txn_id": payload.get("external_txn_id") or record.external_txn_id,
+                   "order_id": record.order_id, "amount": record.amount or cb_amount,
+                   "status": "succeeded", "provider_callback": True, "ts": confirmed_at}
+        return plan(reason="confirmed", applied=True, next_status=next_status,
+                    status=ExecutionStatus.CONFIRMED.value, receipt=receipt,
+                    operation_status=OperationStatus.EXECUTED,
+                    operation_result={"execution_status": ExecutionStatus.CONFIRMED.value,
+                                      "mode": record.mode.value, "receipt": receipt,
+                                      "message": "执行已确认（外部回调验签通过）。"},
+                    update_fields={"confirmed_at": confirmed_at, "receipt": receipt},
+                    claimed_nonce=nonce)
+
+    # 外部失败回调：先原子收敛到 failed_dispatch（非终态）；补偿/对账决策在引擎层（provider 依赖）。
+    return plan(reason="failed_dispatch", applied=True, next_status=next_status,
+                status=ExecutionStatus.FAILED_DISPATCHED.value,
+                operation_status=OperationStatus.EXECUTED,
+                operation_result={"execution_status": ExecutionStatus.FAILED_DISPATCHED.value,
+                                  "mode": record.mode.value,
+                                  "message": "外部回调失败，执行记录已置为 failed_dispatch，待补偿/对账收口。"},
+                update_fields={"confirmed_at": confirmed_at},
+                claimed_nonce=nonce)
 
 
 class MemoryStore:
@@ -370,23 +478,53 @@ class MemoryStore:
                                 pending_action: PendingAction, order_id: str,
                                 idempotency_key: str, mode: ExecutionMode, amount: float | None,
                                 now: float) -> ExecutionRecord:
-        """幂等创建执行记录：同租户同 operation_id 已存在则返回既有（重放），不重复提交外部。"""
-        existing = self._exec_by_op.get((tenant_id, operation_id))
-        if existing is not None:
-            return self.get_execution_record(tenant_id, existing)
-        exec_id = str(uuid.uuid4())
-        self._executions[exec_id] = {
-            "execution_id": exec_id, "tenant_id": tenant_id, "operation_id": operation_id,
-            "pending_action": pending_action.value, "order_id": order_id,
-            "idempotency_key": idempotency_key, "mode": mode.value,
-            "status": ExecutionStatus.PENDING_SUBMIT.value, "created_at": now, "updated_at": now,
-            "amount": amount, "external_txn_id": None, "callback_nonce": None,
-            "submitted_at": None, "confirmed_at": None, "receipt": None,
-            "compensation_status": None, "compensation_result": None, "last_error": None,
-            "attempts": 0,
-        }
-        self._exec_by_op[(tenant_id, operation_id)] = exec_id
-        return self.get_execution_record(tenant_id, exec_id)
+        """幂等创建执行记录：同租户同 operation_id 已存在则返回既有（重放），不重复提交外部。
+
+        原子性（单执行守卫的前置）：在 `_decision_lock` 内做 **check-then-insert**，保证同一
+        (tenant_id, operation_id) 并发下**只产生一条 execution record**。若此处不原子，高并发下
+        多个线程会各自看到"无既有记录"并创建**不同的** execution_id，随后 `claim_execution_submit`
+        会对各自不同的记录解锁（都 attempts=0）→ 多个线程各自 `provider.submit`（对外部重复提交）。
+        与 sqlite/postgres 版以 DB `UNIQUE(tenant_id, operation_id)` + IntegrityError 兜底的语义一致。
+        """
+        with self._decision_lock:
+            existing = self._exec_by_op.get((tenant_id, operation_id))
+            if existing is not None:
+                return self.get_execution_record(tenant_id, existing)
+            exec_id = str(uuid.uuid4())
+            self._executions[exec_id] = {
+                "execution_id": exec_id, "tenant_id": tenant_id, "operation_id": operation_id,
+                "pending_action": pending_action.value, "order_id": order_id,
+                "idempotency_key": idempotency_key, "mode": mode.value,
+                "status": ExecutionStatus.PENDING_SUBMIT.value, "created_at": now, "updated_at": now,
+                "amount": amount, "external_txn_id": None, "callback_nonce": None,
+                "submitted_at": None, "confirmed_at": None, "receipt": None,
+                "compensation_status": None, "compensation_result": None, "last_error": None,
+                "attempts": 0,
+            }
+            self._exec_by_op[(tenant_id, operation_id)] = exec_id
+            return self.get_execution_record(tenant_id, exec_id)
+
+    def claim_execution_submit(self, tenant_id: str, execution_id: str, *, now: float | None = None) -> bool:
+        """单执行守卫：**原子抢占**"本次对 live 提交外部"的权利，仅一个线程能成功。
+
+        用途：同一 operation 并发 execute 时，`create_execution_record` 幂等返回同一记录，若不
+        加守卫，多个线程会**各自**调用 `provider.submit`（对外部重复提交）并在状态跃迁时因读到
+        已推进的 SUBMITTED 抛 `submitted->submitted` 竞态（引擎并发缺陷，见 t4 复现）。
+
+        using `attempts` 0→1 作为单次认领标记（本表 attempts 仅在此用作"首次提交认领"，与重试
+        计数无关）。未认领（attempts=0 且 status=pending_submit）→ 置 1 并返回 True（本线程为
+        提交者）；已被其他线程认领 / 已推进 → 返回 False，调用方应幂等重放，**绝不重复提交外部**。
+        只在 pending_submit（非终态）上认领，终态记录 return False（不破坏 terminal_locked）。
+        """
+        with self._decision_lock:
+            rec = self._executions.get(execution_id)
+            if rec is None or rec["tenant_id"] != tenant_id:
+                raise DomainError(ErrorCode.NOT_FOUND, "执行记录不存在", 404)
+            if rec["status"] != ExecutionStatus.PENDING_SUBMIT.value or rec["attempts"] != 0:
+                return False
+            rec["attempts"] = 1
+            rec["updated_at"] = now if now is not None else time.time()
+            return True
 
     def get_execution_record(self, tenant_id: str, execution_id: str) -> ExecutionRecord:
         rec = self._executions.get(execution_id)
@@ -413,15 +551,22 @@ class MemoryStore:
 
     def update_execution_record(self, tenant_id: str, execution_id: str,
                                 **fields) -> ExecutionRecord:
-        rec = self._executions.get(execution_id)
-        if rec is None or rec["tenant_id"] != tenant_id:
-            raise DomainError(ErrorCode.NOT_FOUND, "执行记录不存在", 404)
-        for k, v in fields.items():
-            if k in ("status", "mode") and isinstance(v, (ExecutionStatus, ExecutionMode)):
-                v = v.value
-            rec[k] = v
-        rec["updated_at"] = fields.get("updated_at", time.time())
-        return self.get_execution_record(tenant_id, execution_id)
+        expected_status = fields.pop("expected_status", None)
+        with self._decision_lock:
+            rec = self._executions.get(execution_id)
+            if rec is None or rec["tenant_id"] != tenant_id:
+                raise DomainError(ErrorCode.NOT_FOUND, "执行记录不存在", 404)
+            # optional CAS：若提供了期望的当前状态，且当前状态与之不符（已被并发推进），
+            # 返回 None，由调用方按"已被推进"幂等重放/收敛，而非对同一个旧状态重复跃迁抛错
+            # （消除 submitted->submitted 之类非法跃迁向调用方抛错的问题）。
+            if expected_status is not None and rec["status"] != expected_status.value:
+                return None
+            for k, v in fields.items():
+                if k in ("status", "mode") and isinstance(v, (ExecutionStatus, ExecutionMode)):
+                    v = v.value
+                rec[k] = v
+            rec["updated_at"] = fields.get("updated_at", time.time())
+            return self.get_execution_record(tenant_id, execution_id)
 
     def claim_callback(self, tenant_id: str, execution_id: str,
                        nonce: str) -> tuple[ExecutionRecord, bool]:
@@ -443,6 +588,47 @@ class MemoryStore:
             rec["callback_nonce"] = nonce  # 新的不同 nonce（合法的后续/最终回调）
             rec["updated_at"] = time.time()
             return self.get_execution_record(tenant_id, execution_id), False
+
+    def apply_callback_atomic(self, tenant_id: str, *, execution_id: str, nonce: str,
+                              payload: dict, now: float) -> CallbackAtomicOutcome:
+        """回调原子应用（单临界区）：nonce 记账 + 执行状态 CAS + 操作更新 + 审计写入。
+
+        与 Postgres/Sqlite 语义一致：查不到记录/跨租户 → not_found（不泄露存在）；
+        同 nonce → replay；终态 + 异/新 nonce → terminal_locked；金额不一致 → amount_mismatch
+        转人工；非法跃迁 → illegal_transition 转人工；中间态 processing → 仅记账；
+        成功 → confirmed；外部失败 → failed_dispatch（补偿/对账在引擎层）。
+        内存版以单进程 `_decision_lock` 模拟单写者 CAS；审计使用执行记录的可信 tenant_id。
+        """
+        with self._decision_lock:
+            rec = self._executions.get(execution_id)
+            if rec is None or rec["tenant_id"] != tenant_id:
+                return CallbackAtomicOutcome(applied=False, reason="not_found",
+                                             execution_id=execution_id, claimed_nonce=None)
+            record = self._to_execution_record(rec)
+            plan = plan_callback_atomic(record, nonce=nonce, payload=payload, now=now)
+            # 原子应用计划（同一临界区内完成全部写）。
+            if plan["book_nonce"]:
+                rec["callback_nonce"] = nonce
+            if plan["next_status"] is not None:
+                rec["status"] = plan["next_status"].value
+            rec["updated_at"] = now
+            for k, v in plan["update_fields"].items():
+                rec[k] = v
+            if plan["operation_status"] is not None:
+                op_rec = self._operations.get(plan["operation_id"])
+                if op_rec is not None and op_rec["tenant_id"] == tenant_id:
+                    op_rec["status"] = plan["operation_status"].value
+                    op_rec["result"] = plan["operation_result"]
+            # 只在「实际状态跃迁」（next_status 非空）时落权威回调审计：使用执行记录的可信
+            # tenant_id，绝不使用请求体不可信 tenant_id。重放/终态封闭/中间态（无状态跃迁）
+            # 不产生额外回调审计（供调用方区分"仅一次"的可信审计链）。
+            if plan["next_status"] is not None:
+                self.append_audit(record.tenant_id, "callback", plan["audit_action"], "execution",
+                                  execution_id, plan["audit_detail"], now)
+            return CallbackAtomicOutcome(applied=plan["applied"], reason=plan["reason"],
+                                         execution_id=execution_id, status=plan["status"],
+                                         receipt=plan["receipt"],
+                                         claimed_nonce=plan["claimed_nonce"])
 
     @staticmethod
     def _to_execution_record(rec: dict) -> ExecutionRecord:

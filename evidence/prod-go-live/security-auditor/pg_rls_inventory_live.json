@@ -1,0 +1,76 @@
+{
+  "rls_enabled_tables": [
+    {"relname": "approvals", "rls_enabled": true, "rls_forced": true},
+    {"relname": "audit", "rls_enabled": true, "rls_forced": true},
+    {"relname": "checkpoint_blobs", "rls_enabled": true, "rls_forced": true},
+    {"relname": "checkpoint_thread_scopes", "rls_enabled": true, "rls_forced": true},
+    {"relname": "checkpoint_writes", "rls_enabled": true, "rls_forced": true},
+    {"relname": "checkpoints", "rls_enabled": true, "rls_forced": true},
+    {"relname": "executions", "rls_enabled": true, "rls_forced": true},
+    {"relname": "memberships", "rls_enabled": true, "rls_forced": true},
+    {"relname": "operations", "rls_enabled": true, "rls_forced": true},
+    {"relname": "sessions", "rls_enabled": true, "rls_forced": true},
+    {"relname": "stream_events", "rls_enabled": true, "rls_forced": true},
+    {"relname": "streams", "rls_enabled": true, "rls_forced": true},
+    {"relname": "tenants", "rls_enabled": false, "rls_forced": false}
+  ],
+  "policies": [
+    {"tablename": "approvals", "policyname": "approvals_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"},
+    {"tablename": "audit", "policyname": "audit_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"},
+    {"tablename": "checkpoint_blobs", "policyname": "checkpoint_blobs_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "checkpoint_thread_in_current_tenant(thread_id)", "with_check": "checkpoint_thread_in_current_tenant(thread_id)"},
+    {"tablename": "checkpoint_thread_scopes", "policyname": "checkpoint_thread_scopes_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"},
+    {"tablename": "checkpoint_writes", "policyname": "checkpoint_writes_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "checkpoint_thread_in_current_tenant(thread_id)", "with_check": "checkpoint_thread_in_current_tenant(thread_id)"},
+    {"tablename": "checkpoints", "policyname": "checkpoints_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "checkpoint_thread_in_current_tenant(thread_id)", "with_check": "checkpoint_thread_in_current_tenant(thread_id)"},
+    {"tablename": "executions", "policyname": "executions_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"},
+    {"tablename": "memberships", "policyname": "memberships_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"},
+    {"tablename": "operations", "policyname": "operations_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"},
+    {"tablename": "sessions", "policyname": "sessions_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"},
+    {"tablename": "stream_events", "policyname": "stream_events_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"},
+    {"tablename": "streams", "policyname": "streams_tenant_scope", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "(tenant_id = app_current_tenant_id())", "with_check": "(tenant_id = app_current_tenant_id())"}
+  ],
+  "roles": [
+    {"rolname": "app_runtime", "rolsuper": false, "rolbypassrls": false, "rolcreatedb": false, "rolcreaterole": false},
+    {"rolname": "migrator", "rolsuper": true, "rolbypassrls": true, "rolcreatedb": true, "rolcreaterole": true}
+  ],
+  "scope_functions": [
+    {"proname": "app_current_tenant_id", "args": ""},
+    {"proname": "checkpoint_thread_in_current_tenant", "args": "candidate_thread_id text"}
+  ],
+  "table_owners": [
+    {"tablename": "approvals", "tableowner": "migrator"},
+    {"tablename": "checkpoint_blobs", "tableowner": "migrator"},
+    {"tablename": "checkpoint_thread_scopes", "tableowner": "migrator"},
+    {"tablename": "checkpoint_writes", "tableowner": "migrator"},
+    {"tablename": "checkpoints", "tableowner": "migrator"},
+    {"tablename": "executions", "tableowner": "migrator"},
+    {"tablename": "operations", "tableowner": "migrator"},
+    {"tablename": "sessions", "tableowner": "migrator"}
+  ],
+  "app_runtime_dml_grants": [
+    {"table_name": "approvals", "privilege_type": "DELETE"},
+    {"table_name": "approvals", "privilege_type": "UPDATE"},
+    {"table_name": "approvals", "privilege_type": "SELECT"},
+    {"table_name": "approvals", "privilege_type": "INSERT"},
+    {"table_name": "executions", "privilege_type": "DELETE"},
+    {"table_name": "executions", "privilege_type": "UPDATE"},
+    {"table_name": "executions", "privilege_type": "SELECT"},
+    {"table_name": "executions", "privilege_type": "INSERT"},
+    {"table_name": "operations", "privilege_type": "DELETE"},
+    {"table_name": "operations", "privilege_type": "UPDATE"},
+    {"table_name": "operations", "privilege_type": "SELECT"},
+    {"table_name": "operations", "privilege_type": "INSERT"},
+    {"table_name": "sessions", "privilege_type": "DELETE"},
+    {"table_name": "sessions", "privilege_type": "UPDATE"},
+    {"table_name": "sessions", "privilege_type": "SELECT"},
+    {"table_name": "sessions", "privilege_type": "INSERT"}
+  ],
+  "timestamp": "2026-09-04T06:15:20+0000",
+  "pg_server": "postgres:5432/langgraph",
+  "checks": {
+    "all_non_tenant_tables_rls_enabled_and_forced": true,
+    "tenants_not_rls": true,
+    "app_runtime_not_superuser_and_not_bypassrls": true,
+    "scope_functions_present": true
+  },
+  "conclusion": true
+}

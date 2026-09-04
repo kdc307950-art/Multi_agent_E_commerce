@@ -12,6 +12,7 @@
 |---|------|----------|------|
 | D1 | API/worker/Redis 重启 | 重启后读接口恢复；Redis 重启不影响 PostgreSQL 数据面；在途敏感写不重复 | `drill_restart_services.sh` |
 | D2 | PostgreSQL 备份恢复 | RPO≤15min、RTO≤60min；恢复后数据完整且快照点后变更被正确排除 | `drill_pg_backup_restore.sh` |
+| D2' | PostgreSQL **加密**备份恢复 | **加密归档**（aes-256-cbc+PBKDF2）+ SHA-256 校验 + 最小权限 `backup_role` + 实测 RPO/RTO | `restore_drill.sh`（`backup_encrypted.sh`） |
 | D3 | 审批中断恢复 | 敏感写**仅审批后执行**；同一审批重复决策幂等收敛到单一操作 | `drill_api.sh approval` |
 | D4 | SSE 断线恢复 | resume 从 Last-Event-ID 重放既有事件，**不重复执行** | `drill_api.sh sse` |
 | D5 | 并发重复提交 | 同一 `client_request_id` 并发两次 → **单一操作/单一流**（幂等） | `drill_api.sh concurrent` |
@@ -24,9 +25,12 @@
 
 ```bash
 git -C <repo> rev-parse --short HEAD          # 记录应用版本
-# D1/D2 独立（服务器操作）
+# D1/D2/D2' 独立（服务器操作）
 bash deploy/drills/drill_restart_services.sh
 bash deploy/drills/drill_pg_backup_restore.sh
+# D2'：加密备份 + 最小权限 backup_role + 实测 RPO/RTO（需注入 BACKUP_ENC_KEY；见 DR_KEY_MANAGEMENT.md）
+BACKUP_ENC_KEY=<注入> bash deploy/scripts/backup_encrypted.sh
+BACKUP_ENC_KEY=<注入> bash deploy/scripts/restore_drill.sh
 
 # D3-D6（API 驱动；需 PREVIEW_TOKEN）
 export PREVIEW_BASE=https://<host>
@@ -41,6 +45,9 @@ bash deploy/drills/run_preview_drills.sh
 ```
 
 各演练脚本在通过时非零==全部 PASS；且以 `deploy/drills/records/` 下的 JSON/Markdown 记录留痕。
+本环境（WSL 本地 preview 集群）可运行的加密备份/恢复/最小权限实证：`bash deploy/drills/verify_dr_local.sh`
+（产出 `evidence/dr_backup_role_least_privilege.json`、`evidence/dr_encrypted_backup.json` 与
+`deploy/drills/records/drill-pg-encrypted-restore.json`）。
 
 ## 3. 本环境（dev）可运行的等价验证
 

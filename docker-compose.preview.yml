@@ -65,6 +65,7 @@ services:
       - ENV=preview
       - DATABASE_MIGRATOR_URL=postgresql://${POSTGRES_USER:-migrator}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-langgraph}
       - APP_RUNTIME_PASSWORD=${APP_RUNTIME_PASSWORD:?APP_RUNTIME_PASSWORD 必须由密钥注入}
+      - BACKUP_ROLE_PASSWORD=${BACKUP_ROLE_PASSWORD:?BACKUP_ROLE_PASSWORD 必须由密钥注入}
     depends_on:
       postgres:
         condition: service_healthy
@@ -143,9 +144,19 @@ services:
       # 结构化 JSON 日志（带 tenant_id 上下文），由自托管日志链路采集；建议 preview 开启。
       - LOG_JSON_FORMAT=${LOG_JSON_FORMAT:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # /api/metrics 内网化：仅允许白名单网段抓取（受限环境 fail-closed，白名单默认即 internal
+      # 网络子网 172.30.0.0/16，与下方 networks.internal 的 ipam.subnet 对齐；Prometheus 经
+      # after-sales-preview_internal 直连 api:8000/api/metrics 抓取）。见 deploy/EGRESS_POLICY.md。
+      - METRICS_EXPOSE_INTERNAL_ONLY=true
+      - METRICS_ALLOWED_SOURCES=${METRICS_ALLOWED_SOURCES:-172.30.0.0/16}
+      # t8：灾备 RPO/RTO gauge 状态文件容器内路径（由 DR 脚本经 drill_metric_exporter.py 写入 host 侧，
+      # 经下方只读挂载进容器；/api/metrics 渲染时合并 drill_rpo/rto_seconds{component="pg_backup"}）。
+      - DRILL_GAUGE_STATE=/app/evidence/dr_metrics/drill_gauges.json
     volumes:
       # 写操作评测报告（只读挂载进容器，供能力矩阵按 write_op_pass=true 门控；避免未设评测即全量转人工）。
       - ./evidence/llm_candidate_eval.json:/app/evidence/llm_candidate_eval.json:ro
+      # t8：灾备 RPO/RTO gauge 状态目录（DR 演练脚本写入 host 侧 deploy/drills/metrics/，read-only 挂载）。
+      - ./deploy/drills/metrics:/app/evidence/dr_metrics:ro
     # 私有内网：由 nginx 反向代理，不发布宿主端口。
     networks: [internal]
     depends_on:
@@ -257,18 +268,29 @@ services:
       retries: 10
       start_period: 15s
 
-  # 每 15 分钟 pg_dump -Fc 到持久 /backups（把 RPO 上界真实绑定到 <=15min，供 D2 备份恢复演练界定
-  # 备份点后变更被排除）。独立 sidecar 容器（postgres 镜像自带 pg_dump），挂载脚本与持久卷。
+  # 每 15 分钟【加密】pg_dump -Fc（最小权限 backup_role）到持久 /backups，附 SHA-256 校验和，可选推送异机。
+  # 把 RPO 上界真实绑定到 <=15min，并满足「加密备份 + 最小权限备份角色」红线（取代"同机 pg_dump 当结论"）。
+  # 独立 sidecar 容器（postgres 镜像自带 pg_dump/openssl），挂载脚本与持久卷。
+  # 安全：对称加密密钥 BACKUP_ENC_KEY 由环境变量注入（绝不硬编码/入日志）；备份连接用 backup_role（仅只读），
+  #       绝不用 owner/超级用户。
   backup:
     image: docker.1ms.run/library/postgres:17-alpine
     command: ["sh", "/app/backup.sh"]
     environment:
-      - BACKUP_DB_URL=postgresql://${POSTGRES_USER:-migrator}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-langgraph}
+      # 最小权限备份角色（仅 CONNECT/SELECT；migrate 服务会创建并授权 backup_role）。
+      - BACKUP_DB_URL=postgresql://${BACKUP_ROLE_USER:-backup_role}:${BACKUP_ROLE_PASSWORD:?BACKUP_ROLE_PASSWORD 必须由密钥注入}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - BACKUP_ENC_KEY=${BACKUP_ENC_KEY:?BACKUP_ENC_KEY 必须由密钥注入（随机对称加密密钥）}
+      - BACKUP_CIPHER=${BACKUP_CIPHER:-aes-256-cbc}
       - BACKUP_KEEP=${BACKUP_KEEP:-8}
       - BACKUP_INTERVAL_SECONDS=${BACKUP_INTERVAL_SECONDS:-900}
+      # 异机副本（可选）：受控目录（挂载到 /offsite）或 rsync 远端目标。
+      - BACKUP_REMOTE_DIR=${BACKUP_REMOTE_DIR:-/offsite}
+      - BACKUP_RSYNC_DEST=${BACKUP_RSYNC_DEST:-}
     volumes:
       - ./deploy/scripts/preview_backup_scheduler.sh:/app/backup.sh:ro
       - ./data/preview-backups:/backups
+      # 受控异机归档目录（宿主机上代码库之外的路径；可选）。缺省用仓库内 data/ 下的 offsite 作演示。
+      - ${BACKUP_REMOTE_MOUNT:-./data/preview-backups-offsite}:/offsite
     networks: [internal]
     depends_on:
       postgres:
@@ -283,7 +305,13 @@ networks:
   # 在宿主机上无监听）。按宪法 1.8 拟设 internal:true 硬阻断出网，但实测在 Docker Desktop
   # (desktop-linux/WSL2) 下 internal:true 会破坏 Docker 内嵌 DNS 的容器名解析（migrate/api 无法
   # 解析 postgres 导致整个栈起不来），故回退为普通 bridge 以保数据面可用。出网阻断的等价落地：
-  # 数据面不发布宿主端口 + LLM_BACKEND=mock（无 LLM 出网）+ 完全自托管 + 若切换真实自托管 LLM
-  # 网关须把该网关容器挂到本 internal 网（见部署记录；此为"出网阻断"的已记录边界/取舍）。
+  # 数据面不发布宿主端口 + LLM_BACKEND 仅内网端点（LLM_ALLOWED_HOSTS 白名单）+ 完全自托管 +
+  # 若切换真实自托管 LLM 网关须把该网关容器挂到本 internal 网（见 deploy/EGRESS_POLICY.md；
+  # 此为"出网阻断"的已记录边界/取舍）。
+  # 固定子网 172.30.0.0/16：使 METRICS_ALLOWED_SOURCES 默认值（见 api 服务）与 Prometheus
+  # 所在网段确定性一致；若该网络已以其它子网创建，需先 down 并重建（见 EGRESS_POLICY.md）。
   internal:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16

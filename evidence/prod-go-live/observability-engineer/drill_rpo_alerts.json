@@ -1,0 +1,57 @@
+{
+  "drill_summary": {
+    "alert": "RpoExceeded",
+    "rule_expr": "drill_rpo_seconds{component=\"pg_backup\"} > 900",
+    "for": "1m",
+    "controlled_injection_source": "after-sales-drill-probe:9100 (obs network, DRILL_RPO env)",
+    "result": "real end-to-end runtime closure in the running Prometheus",
+    "note": "Running prometheus mounts deploy/observability/alert-rules/alert-rules.yml (subdir, 6-group older draft); annotations still say '当前无此指标...表达式为空' although the rule fired -> annotation/runtime inconsistency (see OBSERVABILITY_REPORT.md §6.1)."
+  },
+  "trigger_pre_scrape": {
+    "targets_after_reload": [
+      {"job": "api", "health": "up"},
+      {"job": "drill-probe", "health": "up"},
+      {"job": "loki", "health": "up"},
+      {"job": "prometheus", "health": "up"}
+    ]
+  },
+  "firing_state": [
+    {
+      "query": "GET /api/v1/query?query=drill_rpo_seconds",
+      "result": {"drill_rpo_seconds{component=\"pg_backup\", instance=\"after-sales-drill-probe:9100\", job=\"drill-probe\"}": "1500"}
+    },
+    {
+      "query": "GET /api/v1/alerts (pending, before for:1m)",
+      "alerts": [{"labels": {"alertname": "RpoExceeded", "severity": "critical"}, "state": "pending", "activeAt": "2026-09-04T06:17:54.992699452Z", "value": "1.5e+03"}]
+    },
+    {
+      "query": "GET /api/v1/alerts (after for:1m)",
+      "alerts": [{"labels": {"alertname": "RpoExceeded", "severity": "critical"}, "state": "firing", "activeAt": "2026-09-04T06:17:54.992699452Z", "value": "1.5e+03"}]
+    }
+  ],
+  "locate": [
+    {
+      "query": "GET /api/v1/query?query=drill_rpo_seconds{component=\"pg_backup\"} > 900",
+      "result": [{"metric": {"__name__": "drill_rpo_seconds", "component": "pg_backup", "instance": "after-sales-drill-probe:9100", "job": "drill-probe"}, "value": "1500"}]
+    }
+  ],
+  "close_state": [
+    {
+      "action": "restart drill-probe with DRILL_RPO=100 (<=900)"
+    },
+    {
+      "query": "GET /api/v1/query?query=drill_rpo_seconds",
+      "result": {"drill_rpo_seconds{component=\"pg_backup\", instance=\"after-sales-drill-probe:9100\", job=\"drill-probe\"}": "100"}
+    },
+    {
+      "query": "GET /api/v1/alerts (after restore)",
+      "alerts": []
+    }
+  ],
+  "cleanup": {
+    "prometheus.yml": "restored from backup (api/prometheus/loki only, no drill-probe)",
+    "prometheus_reloaded": true,
+    "drill_probe_container": "removed",
+    "targets_final": ["api:up", "loki:up", "prometheus:up"]
+  }
+}

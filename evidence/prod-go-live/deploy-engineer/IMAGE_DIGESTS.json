@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-09-04",
+  "release_baseline": {
+    "tag": "release/v1.0.0-rc1",
+    "commit": "696444a20c5ab5ea5babee24ce7f53832b8e881a",
+    "tree": "c64aed17f9fa7e498c3493e43fe214a1de890ebf",
+    "parent": "3268a1ca128fedf814835095a6dfb5ec36645b55",
+    "note": "已测功能基线 = 7941246 (baseline-prod-1)。本 tag 在 3268a1c 基础上新增 fix(migrations)（commit 696444a）：修正 shipping_events 复合外键（t2 硬化项），全新 prod-like 库 clean migrate 通过（见 MIGRATE_VERIFY.md）。注：接受运行面仍有剩余未跟踪/未提交文件，需完整 commit 后才构成完全忠实基线（见 DEPLOY_BASELINE.md）。"
+  },
+  "images": {
+    "api": {
+      "service_ref": "api / worker / migrate 共用同一 Django-like 后端镜像",
+      "tag": "after-sales-prod-api:latest",
+      "image_id": "sha256:5d39f030697e1b00ef83fb22a3358ddd2f923be6752a082d9f31d20f4039f293",
+      "repo_digest": "after-sales-prod-api@sha256:5d39f030697e1b00ef83fb22a3358ddd2f923be6752a082d9f31d20f4039f293",
+      "build_context": "仓库根 (context=.)，Dockerfile=Dockerfile",
+      "base_image": "docker.1ms.run/library/python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea (digest 钉定)",
+      "size": "434MB",
+      "built_at": "2026-09-04",
+      "caveat": "重建：含 migrations.py 复合外键修复（commit 696444a）。仍基于工作树构建（其余接受文件未 commit），非字节级可复现（需 commit 全部 + git archive clean-context 重建）。"
+    },
+    "frontend": {
+      "service_ref": "frontend",
+      "tag": "after-sales-prod-frontend:latest",
+      "image_id": "sha256:12c35ff738c4b29fba0562c7677d086ab15516cbcaf6a2b53f77dc22b2886cad",
+      "repo_digest": "after-sales-prod-frontend@sha256:12c35ff738c4b29fba0562c7677d086ab15516cbcaf6a2b53f77dc22b2886cad",
+      "build_context": "./frontend，Dockerfile=frontend/Dockerfile",
+      "base_image": "docker.1ms.run/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293",
+      "built_at": "2026-09-04",
+      "args": { "NEXT_PUBLIC_API_BASE_URL": "/api", "API_PROXY_TARGET": "" }
+    }
+  },
+  "note": "docker build 出口码 1 仅为 BuildKit 进度写 stderr 被 PowerShell 视为错误流；镜像实际已成功命名并 unpack。"
+}

@@ -4,7 +4,14 @@ from __future__ import annotations
 import logging
 
 import pytest
+from fastapi.testclient import TestClient
 
+from src.api.routes import _metrics_request_allowed
+from src.config import Settings
+from src.core.types import Role
+from src.infrastructure.store import MemoryStore
+from src.llm.mock import MockLLM
+from src.main import create_app
 from src.observability.logging import (
     PIIRedactionFilter,
     configure_logging,
@@ -169,3 +176,230 @@ def test_trace_span_sends_metadata_and_redacts_input():
     out = _redact_payload({"card": "6222000011112222", "tenant_id": "TENANT-A"})
     assert "6222000011112222" not in out
     assert "TENANT-A" in out
+
+
+# ---------------------------------------------------------------------------
+# /api/metrics 来源限制（内网化，见 deploy/EGRESS_POLICY.md）
+# ---------------------------------------------------------------------------
+def test_metrics_source_ip_matcher_rejects_invalid():
+    from src.api.routes import _ip_in_network
+
+    assert _ip_in_network("", "10.0.0.0/8") is False
+    assert _ip_in_network("not-an-ip", "10.0.0.0/8") is False
+    assert _ip_in_network("10.1.2.3", "bad-cidr") is False
+    assert _ip_in_network("10.1.2.3", "10.0.0.0/8") is True
+    assert _ip_in_network("10.1.2.3", "10.1.2.3") is True
+
+
+def test_metrics_restricted_env_no_allowlist_fail_closed():
+    s = Settings(env="preview", metrics_expose_internal_only=True, metrics_allowed_sources="")
+    assert _metrics_request_allowed("172.30.0.5", s) is False
+    assert _metrics_request_allowed("127.0.0.1", s) is False
+
+
+def test_metrics_restricted_env_allowlist_hit():
+    s = Settings(env="preview", metrics_expose_internal_only=True,
+                 metrics_allowed_sources="172.30.0.0/16")
+    assert _metrics_request_allowed("172.30.0.5", s) is True
+    assert _metrics_request_allowed("172.30.0.5", s) is True
+    assert _metrics_request_allowed("192.168.1.7", s) is False
+
+
+def test_metrics_restricted_env_gate_off_still_fail_closed():
+    # 受限环境即使显式关闭门控也拒绝（杜绝误配把指标暴露公网）。
+    s = Settings(env="production", metrics_expose_internal_only=False,
+                 metrics_allowed_sources="")
+    assert _metrics_request_allowed("8.8.8.8", s) is False
+    assert _metrics_request_allowed("172.30.0.5", s) is False
+
+
+def test_metrics_dev_gate_off_allows_any():
+    s = Settings(env="development", metrics_expose_internal_only=False, metrics_allowed_sources="")
+    assert _metrics_request_allowed("127.0.0.1", s) is True
+    assert _metrics_request_allowed("8.8.8.8", s) is True
+
+
+def test_metrics_dev_gate_on_empty_allowlist_defaults_to_private():
+    # 非受限环境 + 开启门控 + 无白名单 → 默认仅回环/RFC1918 私网。
+    s = Settings(env="test", metrics_expose_internal_only=True, metrics_allowed_sources="")
+    assert _metrics_request_allowed("127.0.0.1", s) is True
+    assert _metrics_request_allowed("10.0.0.3", s) is True
+    assert _metrics_request_allowed("8.8.8.8", s) is False
+
+
+def test_metrics_dev_gate_on_explicit_cidr():
+    s = Settings(env="development", metrics_expose_internal_only=True,
+                 metrics_allowed_sources="192.168.1.0/24, 10.0.0.0/8")
+    assert _metrics_request_allowed("192.168.1.7", s) is True
+    assert _metrics_request_allowed("10.2.3.4", s) is True
+    assert _metrics_request_allowed("172.30.0.5", s) is False
+
+
+# ---------------------------------------------------------------------------
+# /api/metrics 路由级来源限制（TestClient + 伪装来源头；本机可直接实测）
+# ---------------------------------------------------------------------------
+def _metrics_app(**overrides) -> "TestClient":
+    """构造受控（preview）api 应用用于 /api/metrics 来源限制测试。
+
+    默认开启 metrics 门控并放行回环网段；来源经可信代理深度 1 取 X-Forwarded-For。
+    """
+    defaults = dict(
+        env="preview", auth_backend="real", auth_jwt_secret="sec", auth_jwt_issuer="iss",
+        auth_jwt_audience="aud", login_trusted_proxy_depth=1,
+        metrics_expose_internal_only=True, metrics_allowed_sources="127.0.0.0/8",
+    )
+    defaults.update(overrides)
+    settings = Settings(**defaults)
+    store = MemoryStore()
+    store.create_tenant("T", "t")
+    store.add_membership("T", "U1", Role.CUSTOMER)
+    return create_app(store=store, llm=MockLLM(), seed=False, settings=settings)
+
+
+def test_metrics_endpoint_internal_source_allowed():
+    """内网来源（命中白名单）→ 返回指标 200，且不暴露租户标签。"""
+    get_metrics().counter("test_metrics_total", ("kind",), {"kind": "probe"})
+    with TestClient(_metrics_app()) as c:
+        r = c.get("/api/metrics", headers={"X-Forwarded-For": "127.0.0.1"})
+        assert r.status_code == 200
+        assert "text/plain" in r.headers["content-type"]
+        assert "test_metrics_total" in r.text
+        assert "tenant_id" not in r.text
+
+
+def test_metrics_endpoint_public_source_rejected():
+    """公网来源（未命中白名单）→ 拒绝 403，不暴露指标。"""
+    with TestClient(_metrics_app()) as c:
+        r = c.get("/api/metrics", headers={"X-Forwarded-For": "203.0.113.9"})
+        assert r.status_code == 403
+        assert r.json().get("detail") == "metrics unavailable"
+
+
+def test_metrics_endpoint_fake_xff_not_bypassed_when_untrusted():
+    """可信代理深度为 0（服务被直接暴露）时不信任任何 X-Forwarded-For：公网伪造头也不放行。"""
+    # proxy_depth=0 + 公网伪造 XFF → 来源取直连 peer（TestClient 的 "testclient"），非 IP → 拒绝。
+    with TestClient(_metrics_app(login_trusted_proxy_depth=0)) as c:
+        r = c.get("/api/metrics", headers={"X-Forwarded-For": "127.0.0.1"})
+        assert r.status_code == 403
+
+
+def test_metrics_endpoint_restricted_no_allowlist_fail_closed():
+    """受限环境 + 白名单为空 → 即使来源在回环也 fail-closed 拒绝。"""
+    with TestClient(_metrics_app(metrics_allowed_sources="")) as c:
+        r = c.get("/api/metrics", headers={"X-Forwarded-For": "127.0.0.1"})
+        assert r.status_code == 403
+
+
+def test_metrics_endpoint_dev_gate_off_exposes():
+    """非受限（development）+ 门控关闭 → 本机可抓取指标（不阻断本地开发/观测）。"""
+    settings = Settings(env="development", metrics_expose_internal_only=False,
+                        metrics_allowed_sources="")
+    store = MemoryStore()
+    store.create_tenant("T", "t")
+    store.add_membership("T", "U1", Role.CUSTOMER)
+    with TestClient(create_app(store=store, llm=MockLLM(), seed=False, settings=settings)) as c:
+        r = c.get("/api/metrics")
+        assert r.status_code == 200
+        assert "text/plain" in r.headers["content-type"]
+
+
+# ---------------------------------------------------------------------------
+# 生产运行能力指标：有界标签打点 + gauge 支持 + _FORBIDDEN_LABELS 仍被遵守
+# ---------------------------------------------------------------------------
+def test_metrics_gauge_set_and_render():
+    """gauge：set/render/reset 正确，且禁止高基数标签。"""
+    reg = MetricsRegistry()
+    reg.set("drill_rpo_seconds", 120.0, ("component",), {"component": "pg_backup"})
+    reg.set("drill_rto_seconds", 600.0, ("component",), {"component": "pg_backup"})
+    reg.set("reconcile_last_run_timestamp_seconds", 1720000000.0, (), {})
+    text = reg.render()
+    assert '# TYPE drill_rpo_seconds gauge' in text
+    assert 'drill_rpo_seconds{component="pg_backup"} 120' in text
+    assert '# TYPE drill_rto_seconds gauge' in text
+    assert 'drill_rto_seconds{component="pg_backup"} 600' in text
+    assert '# TYPE reconcile_last_run_timestamp_seconds gauge' in text
+    assert 'reconcile_last_run_timestamp_seconds 1.72e+09' in text
+    # 高基数标签被拒绝。
+    with pytest.raises(ValueError):
+        reg.set("drill_rpo_seconds", 1.0, ("tenant_id",), {"tenant_id": "T"})
+    reg.reset()
+    assert "# TYPE drill_rpo_seconds gauge" not in reg.render()
+
+
+def test_one_second_bucket_supported_metric_names_render():
+    """新增有界指标（审批计数/延迟、对账 mismatch、人工介入、安全拒绝、执行链路）渲染正确。"""
+    reg = MetricsRegistry()
+    reg.counter("approval_decisions_total", ("route", "status"),
+                {"route": "approval.decision", "status": "approved"})
+    reg.observe("approval_decision_latency_seconds", 1.5, ("route",), {"route": "approval.decision"})
+    reg.counter("reconcile_mismatch_total", ("kind",), {"kind": "query_failed"})
+    reg.counter("human_intervention_total", ("kind",), {"kind": "order_deny"})
+    reg.counter("security_denials_total", ("kind",), {"kind": "forbidden"})
+    reg.counter("execution_submit_total", ("mode",), {"mode": "live"})
+    reg.counter("execution_outcome_total", ("mode", "status"), {"mode": "live", "status": "submitted"})
+    reg.counter("execution_callback_total", ("reason",), {"reason": "confirmed"})
+    text = reg.render()
+    assert 'approval_decisions_total{route="approval.decision",status="approved"} 1' in text
+    assert 'approval_decision_latency_seconds_count{route="approval.decision"} 1' in text
+    assert 'approval_decision_latency_seconds_bucket' in text
+    assert 'reconcile_mismatch_total{kind="query_failed"} 1' in text
+    assert 'human_intervention_total{kind="order_deny"} 1' in text
+    assert 'security_denials_total{kind="forbidden"} 1' in text
+    assert 'execution_submit_total{mode="live"} 1' in text
+    assert 'execution_outcome_total{mode="live",status="submitted"} 1' in text
+    assert 'execution_callback_total{reason="confirmed"} 1' in text
+    assert "tenant_id" not in text
+    assert "user_id" not in text
+    assert "order_id" not in text
+
+
+def test_new_bounded_metrics_still_forbid_cardinality_labels():
+    """新增指标在带高基数/敏感标签时一律抛 ValueError（_FORBIDDEN_LABELS 仍生效）。"""
+    reg = MetricsRegistry()
+    for name, labels in [
+        ("approval_decisions_total", ("status",)),
+        ("approval_decision_latency_seconds", ("route",)),
+        ("reconcile_mismatch_total", ("kind",)),
+        ("human_intervention_total", ("kind",)),
+        ("security_denials_total", ("kind",)),
+        ("execution_submit_total", ("mode",)),
+        ("execution_callback_total", ("reason",)),
+    ]:
+        bad_labels = {k: "x" for k in labels}
+        bad_labels.update({"tenant_id": "T"})
+        with pytest.raises(ValueError):
+            reg.counter(name, labels + ("tenant_id",), bad_labels)
+    with pytest.raises(ValueError):
+        reg.observe("approval_decision_latency_seconds", 1.0, ("user_id",), {"user_id": "u1"})
+    with pytest.raises(ValueError):
+        reg.set("drill_rpo_seconds", 1.0, ("operation_id",), {"operation_id": "op1"})
+
+
+def test_api_requests_metric_records_status_via_middleware():
+    """HTTP 中间件在真实请求出栈记录 api_requests_total{route,method,status}（有界，无租户明细）。"""
+    with TestClient(_metrics_app()) as c:
+        r = c.get("/api/healthz")
+        assert r.status_code == 200
+        r2 = c.get("/api/metrics", headers={"X-Forwarded-For": "127.0.0.1"})
+        assert r2.status_code == 200
+        assert 'api_requests_total{method="GET",route="healthz",status="200"}' in r2.text
+        assert "tenant_id" not in r2.text
+        assert "user_id" not in r2.text
+
+
+def test_alert_rules_reference_wired_metrics():
+    """告警规则引用的核心有界指标必须在代码中接入，且不得使用高基数/敏感标签。"""
+    import pathlib
+    rules_path = (pathlib.Path(__file__).resolve().parents[1] / "deploy" / "observability" / "alert-rules.yml")
+    rules = rules_path.read_text(encoding="utf-8")
+    # 这些指标已在 metrics.py/routes.py/engine.py 接入，规则不得再为空表达式。
+    for name in [
+        "api_requests_total", "approval_decisions_total", "approval_decision_latency_seconds",
+        "reconcile_mismatch_total", "reconcile_last_run_timestamp_seconds",
+        "human_intervention_total", "security_denials_total", "drill_rpo_seconds", "drill_rto_seconds",
+    ]:
+        assert name in rules, f"告警规则应引用已接入指标 {name}"
+    # 规则里绝不能把高基数/敏感维度当标签（与 _FORBIDDEN_LABELS 一致）。
+    for bad in ["tenant_id", "user_id", "order_id", "operation_id", "thread_id", "approval_id"]:
+        assert f"{bad}=" not in rules, f"告警规则不得使用敏感/高基数标签 {bad}"
+    assert rules.count("{{ $labels.") >= 0  # 模板标签合法即可（占位，不触发）

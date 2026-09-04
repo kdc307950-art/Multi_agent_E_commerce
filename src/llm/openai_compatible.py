@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 
 from src.llm.base import BaseLLM, LLMOutputError, LLMUnavailableError
+from src.llm.circuit_breaker import CircuitBreaker, CircuitState
 from src.llm.security import EndpointGuard, make_logger, redact, redact_url
 from src.llm.validation import (
     validate_hallucination_check,
@@ -67,7 +68,8 @@ class OpenAICompatibleLLM(BaseLLM):
                  strict: bool = True, transport: "httpx.BaseTransport | None" = None,
                  allowed_hosts: list[str] | None = None, restricted: bool = False,
                  redact_log: bool = True,
-                 high_confidence_models: frozenset[str] | None = None) -> None:
+                 high_confidence_models: frozenset[str] | None = None,
+                 cb_failure_threshold: int = 5, cb_cooldown_seconds: float = 30.0) -> None:
         super().__init__(high_confidence_models)
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
@@ -81,6 +83,8 @@ class OpenAICompatibleLLM(BaseLLM):
                 f"LLM 端点 {redact_url(repr(self._base_url))} 不在网络白名单内（拒绝访问，fail-closed）")
         self._logger = make_logger("dsh.llm.openai_compatible")
         self._redact = redact_log
+        self._cb = CircuitBreaker(failure_threshold=cb_failure_threshold,
+                                  cooldown_seconds=cb_cooldown_seconds)
         self._client = httpx.Client(timeout=httpx.Timeout(timeout), trust_env=False,
                                     transport=transport)
 
@@ -100,8 +104,29 @@ class OpenAICompatibleLLM(BaseLLM):
     def guard_mode(self) -> str:
         return self._guard.restrict_mode
 
-    # ---- 基础调用（带错误分类与有界重试）----
+    @property
+    def circuit_state(self) -> str:
+        """熔断器当前状态（供审计/健康检查）。"""
+        return self._cb.state.value
+
+    # ---- 基础调用（熔断 + 错误分类 + 有界重试）----
     def _chat(self, messages: list[dict], *, response_format: dict | None = None) -> str:
+        # 熔断打开 → 快速失败（fail-closed），由节点层转人工，绝不以低档模型降级执行。
+        if not self._cb.allow():
+            raise LLMUnavailableError(
+                "LLM 熔断器打开（端点持续故障），快速失败转人工（不经降级执行）。")
+        try:
+            content = self._chat_inner(messages, response_format=response_format)
+        except LLMUnavailableError:
+            self._cb.on_failure()
+            raise
+        except LLMOutputError:
+            # 输出非法：不记入熔断（属模型行为异常），由节点 fail-closed 转人工。
+            raise
+        self._cb.on_success()
+        return content
+
+    def _chat_inner(self, messages: list[dict], *, response_format: dict | None = None) -> str:
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": messages,

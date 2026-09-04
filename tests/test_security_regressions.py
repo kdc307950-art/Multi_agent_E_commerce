@@ -226,6 +226,32 @@ def test_same_tenant_customer_cannot_read_other_order(client, store):
     assert any("security.deny.cross_user_order" in a for a in actions)
 
 
+def test_cross_tenant_order_and_shipping_read_rejected(client, store):
+    """跨租户读取被拒绝：租户身份来自服务端认证（JWT），读路径经 EcommerceAdapter 强制租户作用域。
+
+    - TENANT-B 客户读取"仅存在于 TENANT-A"的订单 ORD-002 → 404（不泄露存在性），且在该租户审计留痕。
+    - 反向：TENANT-A 客户读取仅 B 拥有的数据亦不可见；物流轨迹随订单租户作用域一并阻塞，不单独泄露。
+    """
+    # TENANT-B 客户读 A-only 订单（ORDER-002 在 B 不存在）→ 404，不返回 A 的订单/物流数据。
+    tok_b = issue_token("TENANT-B", "USER-B1", Role.CUSTOMER)
+    r_b = client.get("/api/orders/ORD-002", headers=bearer(tok_b))
+    assert r_b.status_code == 404
+    # 拒绝路径在该租户（B）维度审计，绝不落入 A。
+    actions_b = [a.action for a in store.list_audit("TENANT-B")]
+    assert any("order_access_denied" in a for a in actions_b)
+    assert not any("ORD-002" in a for a in actions_b)  # 不把"目标订单存在"泄漏到审计 detail
+    # TENANT-A 客户读自己订单正常（同租户可读），物流轨迹随订单一起返回，不跨租户。
+    tok_a = issue_token("TENANT-A", "USER-001", Role.CUSTOMER)
+    r_a = client.get("/api/orders/ORD-001", headers=bearer(tok_a))
+    assert r_a.status_code == 200
+    assert any(ev["status"] == "已签收" for ev in r_a.json()["shipping_events"])
+    # TENANT-B 上下文读共享订单号 ORD-001 时读取的是 B 自身记录；若 B 无该订单则 404，绝不回读 A 数据。
+    r_b2 = client.get("/api/orders/ORD-001", headers=bearer(tok_b))
+    # B 存在 ORD-001（属于 USER-B1），故 B 用户读本租户记录成功，但为 B 自己的数据。
+    assert r_b2.status_code == 200
+    assert r_b2.json()["shipping_events"] == []  # B 的 ORD-001 无物流轨迹，不混入 A
+
+
 def test_staff_can_access_same_tenant_other_user_resources(client):
     tok_a = issue_token("TENANT-A", "USER-001", Role.CUSTOMER)
     tok_admin = issue_token("TENANT-A", "ADMIN-A", Role.ADMIN)

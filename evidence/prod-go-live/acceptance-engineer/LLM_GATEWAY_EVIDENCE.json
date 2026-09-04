@@ -1,0 +1,92 @@
+{
+  "generated_at": "2026-09-04T14:14:38+0800",
+  "generated_by": "acceptance-engineer (t5 prod-go-live)",
+  "note": "诚实探测真实外部端点 + 能力矩阵/写门控解析 + 执行模式。凡依赖真实模型/网关端点而未具备的，如实标注 BLOCKED。",
+  "llm_endpoint_probe_host": {
+    "endpoint": "http://127.0.0.1:8001/v1",
+    "probe": "GET /v1/models",
+    "ok": false,
+    "status_code": null,
+    "body": null,
+    "error": "URLError: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>"
+  },
+  "eval_report_path": "D:\\software\\PythonProject1\\PythonProject\\Multi_agent_E_commerce\\evidence\\llm_candidate_eval.json",
+  "eval_report_models": {
+    "self-hosted-demo": {
+      "write_op_pass": true,
+      "n_cases": 1
+    }
+  },
+  "capability_scenarios": {
+    "dev_default": {
+      "env": "development",
+      "high_confidence_models": "",
+      "eval_report_path": "D:\\software\\PythonProject1\\PythonProject\\Multi_agent_E_commerce\\evidence\\llm_candidate_eval.json",
+      "resolved_whitelist": [
+        "claude-3-opus",
+        "gpt-4",
+        "gpt-4-turbo",
+        "qwen2.5-max"
+      ],
+      "write_capable_models": [
+        "claude-3-opus",
+        "gpt-4",
+        "gpt-4-turbo",
+        "qwen2.5-max"
+      ],
+      "capability_ok(self-hosted-model)": false,
+      "capability_ok(self-hosted-demo)": false,
+      "capability_ok(gpt-4)": true
+    },
+    "preview_empty_whitelist": {
+      "env": "preview",
+      "high_confidence_models": "",
+      "eval_report_path": "D:\\software\\PythonProject1\\PythonProject\\Multi_agent_E_commerce\\evidence\\llm_candidate_eval.json",
+      "resolved_whitelist": [],
+      "write_capable_models": [],
+      "capability_ok(self-hosted-model)": false,
+      "capability_ok(self-hosted-demo)": false,
+      "capability_ok(gpt-4)": false
+    },
+    "preview_whitelist_no_report": {
+      "env": "preview",
+      "high_confidence_models": "self-hosted-demo",
+      "eval_report_path": "",
+      "resolved_whitelist": [],
+      "write_capable_models": [],
+      "capability_ok(self-hosted-model)": false,
+      "capability_ok(self-hosted-demo)": false,
+      "capability_ok(gpt-4)": false
+    },
+    "preview_self_hosted_demo_whitelist_and_report": {
+      "env": "preview",
+      "high_confidence_models": "self-hosted-demo",
+      "eval_report_path": "D:\\software\\PythonProject1\\PythonProject\\Multi_agent_E_commerce\\evidence\\llm_candidate_eval.json",
+      "resolved_whitelist": [
+        "self-hosted-demo"
+      ],
+      "write_capable_models": [
+        "self-hosted-demo"
+      ],
+      "capability_ok(self-hosted-model)": false,
+      "capability_ok(self-hosted-demo)": true,
+      "capability_ok(gpt-4)": false
+    },
+    "preview_self_hosted_model_whitelist_and_report": {
+      "env": "preview",
+      "high_confidence_models": "self-hosted-model",
+      "eval_report_path": "D:\\software\\PythonProject1\\PythonProject\\Multi_agent_E_commerce\\evidence\\llm_candidate_eval.json",
+      "resolved_whitelist": [],
+      "write_capable_models": [],
+      "capability_ok(self-hosted-model)": false,
+      "capability_ok(self-hosted-demo)": false,
+      "capability_ok(gpt-4)": false
+    }
+  },
+  "DEFAULT_DEV_WRITE_MODELS": [
+    "claude-3-opus",
+    "gpt-4",
+    "gpt-4-turbo",
+    "qwen2.5-max"
+  ]
+}

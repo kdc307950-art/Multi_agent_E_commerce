@@ -36,6 +36,8 @@ from src.llm.capability import (
 from src.llm.eval import evaluate_model
 from src.llm.mock import MockLLM
 from src.llm.openai_compatible import OpenAICompatibleLLM
+from src.llm.circuit_breaker import CircuitBreaker, CircuitState
+from src.llm.base import LLMUnavailableError
 from src.llm.security import EndpointGuard, redact, redact_url
 from src.main import create_app
 from tests.conftest import bearer
@@ -233,7 +235,73 @@ def test_timeout_raises_unavailable():
 
 
 # ---------------------------------------------------------------------------
-# 四、验收：非白名单模型不达写审批执行链（真实端点）
+# 四、熔断器状态机与端点快速失败
+# ---------------------------------------------------------------------------
+def test_circuit_breaker_opens_after_threshold_and_fast_fails():
+    clock = [0.0]
+    cb = CircuitBreaker(failure_threshold=3, cooldown_seconds=10, now_fn=lambda: clock[0])
+    assert cb.state is CircuitState.CLOSED
+    assert cb.allow() is True
+    cb.on_failure()
+    cb.on_failure()
+    assert cb.state is CircuitState.CLOSED
+    cb.on_failure()
+    assert cb.state is CircuitState.OPEN
+    assert cb.allow() is False
+
+
+def test_circuit_breaker_half_open_probe_success_closes():
+    clock = [0.0]
+    cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10, now_fn=lambda: clock[0])
+    cb.on_failure()
+    assert cb.state is CircuitState.OPEN
+    clock[0] = 10.0
+    assert cb.allow() is True
+    assert cb.allow() is False  # half-open 只允许一个探针
+    cb.on_success()
+    assert cb.state is CircuitState.CLOSED
+    assert cb.allow() is True
+
+
+def test_circuit_breaker_half_open_probe_failure_reopens():
+    clock = [0.0]
+    cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10, now_fn=lambda: clock[0])
+    cb.on_failure()
+    clock[0] = 10.0
+    assert cb.allow() is True
+    cb.on_failure()
+    assert cb.state is CircuitState.OPEN
+    assert cb.allow() is False
+
+
+def test_endpoint_5xx_opens_circuit_then_fast_fails_without_transport_call():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(503, json={"error": "boom"}, request=request)
+
+    llm = OpenAICompatibleLLM(
+        "http://127.0.0.1:8001/v1", "sk-local", "m", max_retries=0,
+        cb_failure_threshold=2, cb_cooldown_seconds=60,
+        transport=httpx.MockTransport(handler),
+        allowed_hosts=["127.0.0.1", "localhost"], restricted=False,
+        redact_log=False,
+    )
+    with pytest.raises(LLMUnavailableError):
+        llm.classify_intent("退款 ORD-001")
+    with pytest.raises(LLMUnavailableError):
+        llm.classify_intent("退款 ORD-001")
+    assert llm.circuit_state == CircuitState.OPEN.value
+    before = len(calls)
+    with pytest.raises(LLMUnavailableError, match="熔断器打开"):
+        llm.classify_intent("退款 ORD-001")
+    assert len(calls) == before
+    llm.close()
+
+
+# ---------------------------------------------------------------------------
+# 五、验收：非白名单模型不达写审批执行链（真实端点）
 # ---------------------------------------------------------------------------
 def test_non_whitelist_model_write_fails_closed_via_api(self_hosted_endpoint):
     app, store = _real_app(self_hosted_endpoint, "self-hosted-model")

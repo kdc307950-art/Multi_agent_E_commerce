@@ -1,0 +1,24 @@
+{
+  "scenario": "recovery_post_restore_consistency",
+  "backend": "sqlite",
+  "timestamp": "2026-09-04T13:37:15.624437",
+  "source_sample": {
+    "op_a": "f4673dfa-3d7e-479a-a14d-337a4cc6fa83",
+    "op_b": "86bc47b1-c169-48a7-9914-2f1ccccddb59",
+    "op_a_dup_same_op": true,
+    "approval_a": "08962f47-2c0c-4b3c-b5a3-0d0436997e20",
+    "exec_a": "034db1e5-baa9-4fad-b5d8-beb05003490f"
+  },
+  "restore_consistency_checks": {
+    "C1_idempotency_key_unique_per_tenant": true,
+    "C1_cross_tenant_same_idem_no_overwrite": true,
+    "C2_execution_anchor_unique_per_op": true,
+    "C3_approval_unique_per_op": true,
+    "C5_approval_terminal_preserved": true,
+    "C4_cross_tenant_no_visible": true,
+    "C5_audit_traceable_tenant_scoped": true,
+    "C1_idempotency_replay_after_restore": true
+  },
+  "conclusion": "PASS",
+  "note": "dr-engineer 负责备份可恢复性/RPO/RTO/加密；本记录聚焦恢复到临时库后的数据一致性（幂等键唯一、执行锚点唯一、审批唯一、租户边界、审计可追溯）。"
+}

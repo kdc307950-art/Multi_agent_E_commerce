@@ -7,6 +7,10 @@
 #
 # 备注：基础镜像走镜像加速器（docker.1ms.run，本机对 docker.io 直连受限）；pypi/npm 亦用
 # 国内可达源。本拓扑不构成生产高可用，任何“可运行”结论都不等同于预发布/生产验收。
+#
+# 安全基线（本地开发）：所有服务端口仅 bind 到宿主机回环 127.0.0.1（不对外网暴露）。
+# 本机通过 localhost:PORT 访问；容器间经服务名（api:8000 / postgres:5432）在内网互通。
+# 生产/预发布的敏感端口不发布（见 docker-compose.preview.yml 与 deploy/EGRESS_POLICY.md）。
 
 services:
   postgres:
@@ -15,7 +19,7 @@ services:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=pass
       - POSTGRES_DB=langgraph
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes: ["./data/postgres:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d langgraph -h localhost"]
@@ -26,7 +30,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -73,7 +77,7 @@ services:
       # 生产优先用统一反向代理 + 同源 /api，可关闭 CORS（ENABLE_CORS=false）。
       - ENABLE_CORS=true
       - CORS_ALLOW_ORIGINS=http://localhost:3000
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,7 +143,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     depends_on:
       api:
         condition: service_healthy

@@ -86,6 +86,14 @@ def audit_security_denial(store, tenant_id: str | None, user_id: str | None,
     if store is None:
         return
     cleaned = _redact_detail(detail or {})
+    # 安全拒绝 → 有界 Prometheus 指标 security_denials_total{kind=reason}。
+    # reason 是代码内固定集合（cross_tenant/forbidden/cross_user_*/access_denied/...），
+    # 属于有界维度；绝不把 tenant_id/user_id 等作为标签（拒绝路径全量入审计，明细走审计查询）。
+    try:
+        from src.observability.metrics import get_metrics
+        get_metrics().counter("security_denials_total", ("kind",), {"kind": reason})
+    except Exception:  # 指标记录失败不阻断合规拒绝
+        pass
     try:
         store.append_audit(
             tenant_id or "", user_id or "",

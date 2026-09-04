@@ -1,0 +1,22 @@
+{
+  "b1_cross_tenant_query_B_rows_visible": 0,
+  "b1_own_tenant_rows_visible": 1,
+  "b2_cross_tenant_direct_write_rejected": true,
+  "b3_original_row_intact": 1,
+  "b3_cross_tenant_still_zero": 0,
+  "b3_direct_update_tenant_id_rejected": true,
+  "b4_runtime_role_flags": {
+    "rolname": "app_runtime",
+    "rolsuper": false,
+    "rolbypassrls": false
+  },
+  "b5_sessions_rls": {
+    "rls_enabled": true,
+    "rls_forced": true
+  },
+  "b5_no_tenant_scope_zero_visible": 0,
+  "b5_cross_tenant_B_zero_visible": 0,
+  "b5_own_tenant_A_visible": 1,
+  "timestamp": "2026-09-04T05:56:51+0000",
+  "conclusion": true
+}

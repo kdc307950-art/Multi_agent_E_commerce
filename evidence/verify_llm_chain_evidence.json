@@ -21,7 +21,19 @@
     "B_endpoint_5xx_raises_unavailable": {
       "status": "PASS",
       "evidence": "用 httpx.MockTransport 注入 503 后调 classify_intent => 抛 LLMUnavailableError（节点层 fail-closed 转人工）。"
+    },
+    "circuit_breaker_state_machine": {
+      "status": "PASS",
+      "evidence": "CircuitBreaker 单元测试覆盖连续失败达到阈值 CLOSED→OPEN；OPEN.allow() 快速返回 False；冷却后仅放行一个 HALF_OPEN 探针；探针成功 HALF_OPEN→CLOSED，失败 HALF_OPEN→OPEN。"
+    },
+    "circuit_breaker_endpoint_fast_fail": {
+      "status": "PASS",
+      "evidence": "httpx.MockTransport 注入两次 503 后 circuit_state=open；第三次 classify_intent 抛 LLMUnavailableError（熔断器打开），MockTransport 调用次数不再增加，证明快速失败且不触发下游执行。"
     }
   },
-  "overall": "三个验收项全部通过"
+  "tests": {
+    "command": ".venv\\Scripts\\python.exe -m pytest tests\\test_llm_endpoint_gate.py -q",
+    "result": "21 passed"
+  },
+  "overall": "三个验收项全部通过；熔断状态机与端点快速失败测试通过"
 }

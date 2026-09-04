@@ -13,6 +13,7 @@
 多租户：所有执行记录带 tenant_id；执行前强制订单归属/租户作用域；缺失上下文默认拒绝。
 """
 from src.execution.types import (
+    CallbackAtomicOutcome,
     CallbackResult,
     ExecutionMode,
     ExecutionRecord,
@@ -20,7 +21,13 @@ from src.execution.types import (
     ExecutionOutcome,
     ReconciliationResult,
 )
-from src.execution.provider import FundsProvider, MockFundsProvider, build_provider
+from src.execution.provider import (
+    FundsProvider,
+    MockFundsProvider,
+    ProviderError,
+    SandboxHttpFundsProvider,
+    build_provider,
+)
 from src.execution.verification import (
     build_callback_signature,
     sign_payload,
@@ -29,6 +36,7 @@ from src.execution.verification import (
 from src.execution.engine import ExecutionEngine
 
 __all__ = [
+    "CallbackAtomicOutcome",
     "CallbackResult",
     "ExecutionMode",
     "ExecutionRecord",
@@ -37,6 +45,8 @@ __all__ = [
     "ReconciliationResult",
     "FundsProvider",
     "MockFundsProvider",
+    "ProviderError",
+    "SandboxHttpFundsProvider",
     "build_provider",
     "build_callback_signature",
     "sign_payload",

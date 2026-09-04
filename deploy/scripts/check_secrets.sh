@@ -20,6 +20,8 @@ REQUIRED=(
   POSTGRES_PASSWORD         # PostgreSQL owner/迁移角色口令
   REDIS_PASSWORD            # Redis requirepass
   APP_RUNTIME_PASSWORD      # 运行角色 app_runtime 口令
+  BACKUP_ROLE_PASSWORD      # 最小权限备份角色 backup_role 口令（加密备份连接用）
+  BACKUP_ENC_KEY            # 备份对称加密密钥（backup sidecar/backup_encrypted.sh 用，绝不硬编码/入日志）
   AUTH_JWT_SECRET           # JWT HS256 密钥（受限环境缺失 api 启动即 fail-closed）
   AUTH_LOGIN_CREDENTIALS    # 登录凭据表 JSON（未配置则 /api/auth/login fail-closed）
   LLM_API_KEY               # 自托管 OpenAI 兼容端点密钥

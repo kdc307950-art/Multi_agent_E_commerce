@@ -1,0 +1,28 @@
+{
+  "scenario": "reconcile_entry_evidence",
+  "backend": "postgres",
+  "reconcile_A_unknown_status": {
+    "scanned": 3,
+    "reconciled": 0,
+    "mis_matched": 3,
+    "human_handoff": 0,
+    "terminal_status": "mismatched",
+    "operation_status": "human_handoff"
+  },
+  "reconcile_B_no_provider_fail_closed": {
+    "scanned": 2,
+    "reconciled": 0,
+    "mis_matched": 2,
+    "human_handoff": 0
+  },
+  "audit_reconcile_actions": [
+    "execution.reconcile.mismatch",
+    "execution.reconcile.mismatch",
+    "execution.reconcile.mismatch"
+  ],
+  "audit_compensated_actions": [
+    "execution.compensated"
+  ],
+  "entry_reachable": true,
+  "mismatch_to_human_path": true
+}

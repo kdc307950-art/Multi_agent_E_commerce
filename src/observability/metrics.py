@@ -34,6 +34,8 @@ class MetricsRegistry:
         self._counters: dict[tuple, float] = {}
         # (name, labels_tuple) -> (total, [c0..cn-1], sum)
         self._histograms: dict[tuple, tuple[int, list, float]] = {}
+        # (name, labels_tuple) -> float（gauge：可由外部受控脚本写入的绝对值）
+        self._gauges: dict[tuple, float] = {}
 
     @staticmethod
     def _check_labels(label_names: tuple[str, ...], labels: dict[str, Any]) -> None:
@@ -81,9 +83,26 @@ class MetricsRegistry:
                     buckets[i] += 1
             self._histograms[key] = (total + 1, buckets, sm + value)
 
+    # ---- Gauge ----
+    def set(self, name: str, value: float,
+            label_names: tuple[str, ...] = (),
+            labels: dict[str, Any] | None = None) -> None:
+        """设置一个 gauge 绝对值（如对账最后运行时间 / 备份恢复 RPO/RTO 实测）。
+
+        仅供自托管受控脚本/任务写入**有界**维度（如 component=pg_backup），
+        绝不接受 tenant_id/user_id 等高基数/敏感标签（由 `_check_labels` 拒绝）。
+        """
+        labels = labels or {}
+        self._check_labels(label_names, labels)
+        key = (name, self._lkey(labels))
+        with self._lock:
+            self._declared.setdefault(name, label_names)
+            self._gauges[key] = float(value)
+
     # ---- 渲染 ----
     def render(self) -> str:
         lines: list[str] = []
+        seen_families: set[str] = set()
 
         def fmt_labels(label_names: tuple[str, ...], labels: tuple[tuple[str, str], ...],
                        extra: str = "") -> str:
@@ -92,17 +111,29 @@ class MetricsRegistry:
                 parts.append(extra)
             return "{" + ",".join(parts) + "}" if parts else ""
 
+        def emit_type(name: str, kind: str) -> None:
+            # 每个指标族只输出一次 `# TYPE` 头（否则同一指标名的多个系列会出现重复 TYPE 行，
+            # 让 Prometheus 文本抓取报错）。
+            if name not in seen_families:
+                lines.append(f"# TYPE {name} {kind}")
+                seen_families.add(name)
+
         with self._lock:
             counters = list(self._counters.items())
             declared = dict(self._declared)
             hists = list(self._histograms.items())
+            gauges = list(self._gauges.items())
 
         for (name, labels), value in counters:
-            lines.append(f"# TYPE {name} counter")
+            emit_type(name, "counter")
+            lines.append(f"{name}{fmt_labels(declared.get(name, ()), labels)} {value:g}")
+
+        for (name, labels), value in gauges:
+            emit_type(name, "gauge")
             lines.append(f"{name}{fmt_labels(declared.get(name, ()), labels)} {value:g}")
 
         for (name, labels), (total, buckets, sm) in hists:
-            lines.append(f"# TYPE {name} histogram")
+            emit_type(name, "histogram")
             for i, upper in enumerate(self._buckets):
                 lines.append(
                     f"{name}_bucket{fmt_labels(declared.get(name, ()), labels, 'le=' + repr(upper))} {buckets[i]:g}")
@@ -117,6 +148,7 @@ class MetricsRegistry:
         with self._lock:
             self._counters.clear()
             self._histograms.clear()
+            self._gauges.clear()
             self._declared.clear()
 
 

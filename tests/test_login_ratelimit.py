@@ -185,14 +185,17 @@ def _creds_json() -> str:
     return json.dumps({"T:U1": _argon2_phc("pw1"), "T:U2": _argon2_phc("pw2")})
 
 
-def _app(account_limit=5, ip_limit=30, proxy_depth=0, backoff_max_failures=5):
+def _app(account_limit=5, ip_limit=30, proxy_depth=0, backoff_max_failures=5,
+         metrics_expose_internal_only=False, metrics_allowed_sources="", env="preview"):
     settings = Settings(
-        env="preview", auth_backend="real", auth_jwt_secret="sec", auth_jwt_issuer="iss",
+        env=env, auth_backend="real", auth_jwt_secret="sec", auth_jwt_issuer="iss",
         auth_jwt_audience="aud", auth_login_credentials=_creds_json(),
         auth_credential_hash="argon2id", login_rate_limit_store="memory",
         login_account_rate_limit=account_limit, login_ip_rate_limit=ip_limit,
         login_trusted_proxy_depth=proxy_depth,
         login_backoff_max_failures=backoff_max_failures,
+        metrics_expose_internal_only=metrics_expose_internal_only,
+        metrics_allowed_sources=metrics_allowed_sources,
     )
     return create_app(store=_login_store(), llm=MockLLM(), seed=False, settings=settings)
 
@@ -241,13 +244,20 @@ def test_wrong_credential_counts_as_failure_and_triggers_backoff():
 
 
 def test_rate_limit_metrics_are_exposed():
-    with TestClient(_app(account_limit=2)) as c:
+    # /api/metrics 在受控（preview）环境仅允许白名单内网段抓取（见 deploy/EGRESS_POLICY.md）。
+    # 来源经可信代理深度 1 取 X-Forwarded-For 最后一个值，须命中 metrics_allowed_sources。
+    with TestClient(_app(account_limit=2, proxy_depth=1,
+                         metrics_expose_internal_only=True,
+                         metrics_allowed_sources="127.0.0.0/8")) as c:
         c.post("/api/auth/login", json={"tenant_id": "T", "user_id": "U1", "credential": "pw1"})
         c.post("/api/auth/login", json={"tenant_id": "T", "user_id": "U1", "credential": "pw1"})
         c.post("/api/auth/login", json={"tenant_id": "T", "user_id": "U1", "credential": "pw1"})
-        body = c.get("/api/metrics").text
+        headers = {"X-Forwarded-For": "127.0.0.1"}
+        body = c.get("/api/metrics", headers=headers).text
         assert "login_attempts_total" in body
         assert "login_rate_limited_total" in body
+        # 未命中白名单的来源（公网）被拒绝（fail-closed）。
+        assert c.get("/api/metrics", headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 403
 
 
 # ---------------------------------------------------------------------------

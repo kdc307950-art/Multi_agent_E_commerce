@@ -208,6 +208,23 @@ def create_app(store=None, llm=None, checkpointer=None,
         )
 
     app.include_router(routes.router, prefix=settings.api_prefix)
+
+    @app.middleware("http")
+    async def record_api_metrics(http_request: Request, call_next):
+        """统一记录 API 请求结果 api_requests_total{route,method,status}。
+
+        有界标签（route/method/status），为错误率（5xx 占比）/人工介入率告警提供真实数据；
+        route 由匹配到的路由模板折叠派生，绝不把 path 参数当标签值；不含租户/用户/订单明细。
+        未捕获异常（500）也记录一次，避免丢失错误率信号。
+        """
+        try:
+            response = await call_next(http_request)
+        except Exception:
+            routes.record_api_request_metric(http_request, 500)
+            raise
+        routes.record_api_request_metric(http_request, response.status_code)
+        return response
+
     if demo_seed_allowed and not postgres_mode:
         seed_default(store)
     return app

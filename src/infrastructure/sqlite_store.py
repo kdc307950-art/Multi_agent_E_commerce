@@ -33,7 +33,21 @@ from src.core.types import (
     Tenant,
     TenantStatus,
 )
-from src.execution.types import ExecutionMode, ExecutionRecord, ExecutionStatus
+from src.execution.types import (
+    CallbackAtomicOutcome,
+    ExecutionMode,
+    ExecutionRecord,
+    ExecutionStatus,
+)
+
+_TERMINAL_EXECUTION_STATUSES = (
+    ExecutionStatus.CONFIRMED.value,
+    ExecutionStatus.COMPENSATED.value,
+    ExecutionStatus.COMPENSATION_FAILED.value,
+    ExecutionStatus.RECONCILED.value,
+    ExecutionStatus.MISMATCHED.value,
+    ExecutionStatus.HUMAN_HANDOFF.value,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tenants (
@@ -426,6 +440,22 @@ class SqliteStore:
             return self.get_execution_record(tenant_id, existing["execution_id"])
         return self.get_execution_record(tenant_id, exec_id)
 
+    def claim_execution_submit(self, tenant_id: str, execution_id: str, *, now: float | None = None) -> bool:
+        """单执行守卫：原子抢占"本次 live 提交外部"的权利，仅一个线程成功。
+
+        用 attempts 0→1 作为单次认领标记（作用于 status=pending_submit 的非终态记录）。
+        唯一 UPDATE ... WHERE status='pending_submit' AND attempts=0 在单连接锁内原子完成；
+        成功 → True（本线程为提交者）；已被认领/已推进 → False（调用方幂等重放，不重复提交）。
+        终态记录（status 非 pending_submit）一律 False（保留 terminal_locked 语义）。
+        """
+        now = now if now is not None else time.time()
+        cur = self._q(
+            "UPDATE executions SET attempts=?1, updated_at=?2 "
+            "WHERE execution_id=?3 AND tenant_id=?4 AND status='pending_submit' AND attempts=0",
+            (1, now, execution_id, tenant_id),
+        )
+        return cur.rowcount == 1
+
     def get_execution_record(self, tenant_id: str, execution_id: str) -> ExecutionRecord:
         row = self._q("SELECT * FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
         if row is None or row["tenant_id"] != tenant_id:
@@ -448,7 +478,11 @@ class SqliteStore:
 
     def update_execution_record(self, tenant_id: str, execution_id: str,
                                 **fields) -> ExecutionRecord:
+        expected_status = fields.pop("expected_status", None)
         cols, args = [], []
+        if expected_status is not None:
+            expected_status = (expected_status.value
+                               if isinstance(expected_status, ExecutionStatus) else expected_status)
         for k, v in fields.items():
             if k in ("status", "mode") and isinstance(v, (ExecutionStatus, ExecutionMode)):
                 v = v.value
@@ -456,10 +490,18 @@ class SqliteStore:
                 v = json.dumps(v, ensure_ascii=False)
             cols.append(f"{k}=?")
             args.append(v)
-        args += [execution_id, tenant_id]
-        cur = self._q(f"UPDATE executions SET {', '.join(cols)} "
-                      "WHERE execution_id=? AND tenant_id=?", tuple(args))
+        # optional CAS：expected_status 提供时仅当当前 status 与之相符才更新；否则已被并发推进 → None。
+        where = "execution_id=? AND tenant_id=?"
+        where_args: list = [execution_id, tenant_id]
+        if expected_status is not None:
+            where += " AND status=?"
+            where_args.append(expected_status)
+        cur = self._q(f"UPDATE executions SET {', '.join(cols)} WHERE {where}",
+                      tuple(args + where_args))
         if cur.rowcount == 0:
+            if expected_status is not None:
+                # 已被并发推进（状态不再等于 expected）→ CAS 落空，返回 None（幂等重放）。
+                return None
             raise DomainError(ErrorCode.NOT_FOUND, "执行记录不存在", 404)
         return self.get_execution_record(tenant_id, execution_id)
 
@@ -481,6 +523,90 @@ class SqliteStore:
                     "WHERE execution_id=? AND tenant_id=?",
                     (nonce, time.time(), execution_id, tenant_id))
             return self.get_execution_record(tenant_id, execution_id), False
+
+    def apply_callback_atomic(self, tenant_id: str, *, execution_id: str, nonce: str,
+                              payload: dict, now: float) -> CallbackAtomicOutcome:
+        """回调原子应用（单事务）：nonce 记账 + 状态 CAS + 操作更新 + 审计写入，要么全成要么全回滚。
+
+        单一连接 + RLock 保证无并发交错；事务保证写操作原子提交。语义与 Memory/Postgres 一致：
+        not_found / replay / terminal_locked / amount_mismatch / illegal_transition /
+        processing / confirmed / failed_dispatch。审计使用执行记录的可信 tenant_id。
+        """
+        from src.infrastructure.store import plan_callback_atomic
+        import uuid
+        with self._lock:
+            self._conn.execute("BEGIN")
+            try:
+                row = self._conn.execute(
+                    "SELECT * FROM executions WHERE execution_id=? AND tenant_id=?",
+                    (execution_id, tenant_id),
+                ).fetchone()
+                if row is None:
+                    self._conn.commit()
+                    return CallbackAtomicOutcome(applied=False, reason="not_found",
+                                                 execution_id=execution_id, claimed_nonce=None)
+                record = self._row_to_execution(row)
+                plan = plan_callback_atomic(record, nonce=nonce, payload=payload, now=now)
+
+                # 状态 CAS（终态封闭 + expected status）：
+                if plan["next_status"] is not None:
+                    cols = ["status=?", "callback_nonce=?", "updated_at=?"]
+                    args: list = [plan["next_status"].value, nonce, now]
+                    for k, v in plan["update_fields"].items():
+                        if k == "receipt":
+                            v = json.dumps(v, ensure_ascii=False)
+                        cols.append(f"{k}=?")
+                        args.append(v)
+                    args += [execution_id, tenant_id, plan["expected_status"].value]
+                    terminal = _TERMINAL_EXECUTION_STATUSES
+                    ph = ",".join("?" for _ in terminal)
+                    cur = self._conn.execute(
+                        f"UPDATE executions SET {', '.join(cols)} "
+                        f"WHERE execution_id=? AND tenant_id=? AND status=? "
+                        f"AND status NOT IN ({ph})",
+                        tuple(args + list(terminal)),
+                    )
+                    if cur.rowcount == 0:
+                        self._conn.rollback()
+                        return CallbackAtomicOutcome(applied=False, reason="terminal_locked",
+                                                     execution_id=execution_id,
+                                                     status=plan["status"],
+                                                     claimed_nonce=plan["claimed_nonce"])
+                elif plan["book_nonce"]:
+                    # processing：仅记账（无状态跃迁）。
+                    self._conn.execute(
+                        "UPDATE executions SET callback_nonce=?, updated_at=? "
+                        "WHERE execution_id=? AND tenant_id=?",
+                        (nonce, now, execution_id, tenant_id),
+                    )
+
+                # 操作状态更新（同事务）。
+                if plan["operation_status"] is not None:
+                    self._conn.execute(
+                        "UPDATE operations SET status=?, result=? "
+                        "WHERE operation_id=? AND tenant_id=?",
+                        (plan["operation_status"].value,
+                         json.dumps(plan["operation_result"], ensure_ascii=False)
+                         if plan["operation_result"] else None,
+                         plan["operation_id"], tenant_id),
+                    )
+                # 权威回调审计（仅在状态跃迁时写；可信 tenant_id = record.tenant_id）。
+                if plan["next_status"] is not None:
+                    self._conn.execute(
+                        "INSERT INTO audit(audit_id,tenant_id,user_id,action,target_type,target_id,detail,created_at) "
+                        "VALUES(?,?,?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), record.tenant_id, "callback", plan["audit_action"],
+                         "execution", execution_id,
+                         json.dumps(plan["audit_detail"], ensure_ascii=False), now),
+                    )
+                self._conn.commit()
+                return CallbackAtomicOutcome(applied=plan["applied"], reason=plan["reason"],
+                                             execution_id=execution_id, status=plan["status"],
+                                             receipt=plan["receipt"],
+                                             claimed_nonce=plan["claimed_nonce"])
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def _row_to_execution(self, row) -> ExecutionRecord:
         return ExecutionRecord(

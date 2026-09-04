@@ -26,7 +26,10 @@
 | 区域 | 阈值 | 验收方式 |
 |------|------|----------|
 | 部署健康 | `healthcheck.sh` 4 项全过；仅 80/443 开放；无 CORS 头 | `bash deploy/scripts/healthcheck.sh` |
-| 数据恢复 | RPO ≤ 15 分钟，RTO ≤ 60 分钟 | `drill_pg_backup_restore.sh`（实测写入记录） |
+| 数据恢复 | RPO ≤ 15 分钟，RTO ≤ 60 分钟 | `restore_drill.sh`（**加密备份**解密恢复 + 实测 RPO/RTO 写入记录） |
+| 加密备份 | 归档为密文（aes-256-cbc+PBKDF2）、附 SHA-256 校验和、可解密恢复 | `restore_drill.sh`（密文可解 + 校验和复核） |
+| 最小权限备份账号 | 备份用 `backup_role`（仅 CONNECT/SELECT，无写/DDL） | `backup_encrypted.sh`/`preview_backup_scheduler.sh` + 下钻验证备份角色无 DML/DDL |
+| 异机副本 | 加密归档推送到代码库之外的受控目录/异机，按 `BACKUP_KEEP` 保留 | `backup_encrypted.sh`（`REMOTE_BACKUP_DIR`/`scp`/`rsync`） |
 | 重启韧性 | API/worker/Redis 任一重启后读接口恢复；Redis 重启不影响 PG 数据面 | `drill_restart_services.sh` |
 | 审批幂等 | 同一审批重复决策收敛到单一 `operation_id`，不重复执行 | `drill_api.sh approval` |
 | SSE 恢复 | 断线 resume 只重放既有事件，**不**重新执行 | `drill_api.sh sse` |
@@ -52,15 +55,17 @@
 
 **回滚动作**（安全优先，恢复靠快照）：
 ```bash
-# 0) 回滚前快照（可逆性）
-bash deploy/scripts/backup_db.sh deploy/backups/pre-rollback-$(date +%Y%m%d%H%M%S).dump
+# 0) 回滚前快照（可逆性）—— 加密备份（需要 BACKUP_ENC_KEY 注入；见 DR_KEY_MANAGEMENT.md）
+BACKUP_ENC_KEY=<注入> bash deploy/scripts/backup_db.sh deploy/backups/pre-rollback-$(date +%Y%m%d%H%M%S)
 # 1) 恢复到变更前快照 + 重建应用到变更前 git 引用
 bash deploy/scripts/rollback.sh deploy/backups/langgraph-<ts>.dump <git-ref>
 # 2) 健康复验
 bash deploy/scripts/healthcheck.sh
 ```
 > 数据库向前迁移幂等（`CREATE IF NOT EXISTS`/`CREATE OR REPLACE`），故回滚=恢复数据（RPO）+ 应用版本回退；
-> 不提供"部分回滚到中间 schema"。生产基线"先备份、再变更、恢复靠快照"。
+> 不提供"部分回滚到中间 schema"。生产基线"先加密备份、再变更、恢复靠快照"。
+> 注：`rollback.sh` 内联的"回滚前快照"用 `pg_restore` 需要的**明文** pg_dump 直连 owner 执行（重放恢复用）；
+> 独立、可长期存档的**DR 加密归档**请走 `backup_encrypted.sh`/`restore_drill.sh`。
 
 ---
 
@@ -85,17 +90,19 @@ bash deploy/scripts/healthcheck.sh
 
 ## 5. 每日备份恢复演练记录
 
-每日例行：**备份 → 恢复 → 校验**（RPO/RTO），把结果按 `deploy/drills/record_template.md` 填写，
-留存在 `deploy/drills/records/`。建议 cron（每日 03:00 备份、每日 04:00 恢复演练）：
+每日例行：**加密备份 → 解密恢复 → 采样校验**（实测 RPO/RTO），把结果按 `deploy/drills/record_template.md` 填写，
+留存在 `deploy/drills/records/`。建议 cron（每日 03:00 加密备份、每日 04:00 加密恢复演练）：
 
 ```bash
-# crontab
-0 3 * * * bash /path/deploy/scripts/backup_db.sh /path/deploy/backups/langgraph-$(date +\%Y\%m\%d).dump
-0 4 * * * bash /path/deploy/drills/drill_pg_backup_restore.sh
+# crontab（需注入 BACKUP_ENC_KEY；密钥管理见 deploy/DR_KEY_MANAGEMENT.md）
+0 3 * * * BACKUP_ENC_KEY=<注入> bash /path/deploy/scripts/backup_encrypted.sh
+0 4 * * * BACKUP_ENC_KEY=<注入> bash /path/deploy/scripts/restore_drill.sh
 ```
 
-每日演练记录要点：日期、备份文件、RPO、RTO、恢复后数据校验、执行人/复核人、异常与处理。
+每日演练记录要点：日期、加密备份文件、**实测 RPO/RTO**、恢复后数据校验、最小权限备份角色、执行人/复核人、异常与处理。
 **任何一天恢复失败都应升级为值班事件并回滚相关变更。**
+> 加密备份由 `backup` sidecar（`preview_backup_scheduler.sh`，最小权限 `backup_role` + aes-256-cbc + SHA-256）周期性执行，
+> 备份点后变更在恢复演练中必须被排除（marker 校验），禁止以"同机 pg_dump 当结论"。
 
 ---
 

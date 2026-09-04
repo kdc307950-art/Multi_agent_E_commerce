@@ -1,0 +1,39 @@
+﻿{
+    "generated_at":  "2026-09-04T14:16:37.8539844+08:00",
+    "prod":  {
+                 "project":  "after-sales-prod",
+                 "postgres_db":  "after_sales_prod",
+                 "postgres_password_sha256":  "59e049bc793795031c1e9928addb00d586aa94adc83303c8ad92fdd990d388b8",
+                 "data_dirs":  [
+                                   "./data/prod-backups",
+                                   "./data/prod-backups-offsite"
+                               ],
+                 "host_ports":  [
+                                    "8080:80",
+                                    "8843:443"
+                                ],
+                 "subnet":  "172.31.0.0/16"
+             },
+    "preview":  {
+                    "project":  "after-sales-preview",
+                    "postgres_db":  "langgraph",
+                    "postgres_password_sha256":  "c60f895529c4ea872d5e74f7ff5e6bcfef7602e9e923aa93352ef0830f1fa404",
+                    "data_dirs":  [
+                                      "./data/preview-backups",
+                                      "./data/preview-postgres"
+                                  ],
+                    "host_ports":  [
+                                       "80:80",
+                                       "443:443"
+                                   ],
+                    "subnet":  "172.30.0.0/16"
+                },
+    "checks":  {
+                   "db_name_differs":  true,
+                   "password_differs":  true,
+                   "dirs_disjoint":  true,
+                   "subnet_differs":  true,
+                   "host_ports_disjoint":  true,
+                   "independent":  true
+               }
+}

@@ -1,0 +1,1 @@
+{"scenario":"V1_backup_role_least_privilege","read_ok":1,"write_denied":1,"ddl_denied":1,"role_flags":"false,false,false,true"}

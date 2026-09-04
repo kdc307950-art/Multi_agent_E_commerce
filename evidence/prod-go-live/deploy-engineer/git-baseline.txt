@@ -1,0 +1,46 @@
+﻿=== HEAD commit ===
+3268a1ca128fedf814835095a6dfb5ec36645b55
+=== HEAD tree ===
+3268a1ca128fedf814835095a6dfb5ec36645b55
+--- cat-file -p HEAD ---
+tree ee3c219118ecff8dd301a7d05ccb601bb9f74524
+parent 03819a8dec94af079a039685a168e7c081dcbaa9
+author kdc307950-art <kdc307950@gmail.com> 1788493593 +0800
+committer kdc307950-art <kdc307950@gmail.com> 1788493593 +0800
+
+test(deploy): 更新 clean-context 构建断言以匹配 git archive 上下文
+
+- tests/test_deploy_checks.py：test_deploy_builds_from_clean_worktree 由断言 git worktree add --detach 改为断言 git archive|tar -x（t10 已将 build_from_worktree 改为 git archive 物化固定 mtime 的干净上下文）。
+- deploy/scripts/common.sh：write_publish_record 构建方式文案与 git archive 上下文一致。
+- 全量 pytest 278 passed, 16 skipped。
+- 同步发布记录为 baseline-prod-4 真实可观测值。
+
+=== tags ===
+baseline-prod-1 -> 7941246 fix(execution): 防御 JSONB 列在 psycopg3 下重复 json.loads — 新增 _as_json,仅 str/bytes 才解析,修复审批后 execute_refund 收尾/SSE 重放//api/audit 崩溃
+baseline-prod-2 -> ad168ef feat: 生产发布基线改造
+baseline-prod-3 -> 8be2d97 fix(reproducibility): 钉基础镜像 digest + 精确锁定依赖基线，使干净 tag 冷构建可复现
+baseline-prod-4 -> 03819a8 fix(reproducibility): build_from_worktree 改用 git archive 固定 mtime 物化构建上下文
+release/v1.0.0-rc1 -> a27f4c7 生产发布基线（候选）：constituent 可复现构建点 HEAD=3268a1c。功能已测基线=7941246(baseline-prod-1)。注：接受的运行面含未跟踪/未提交文件，需 commit 后才构成忠实基线。
+
+=== commit chain (last 8) ===
+3268a1c test(deploy): 更新 clean-context 构建断言以匹配 git archive 上下文
+03819a8 fix(reproducibility): build_from_worktree 改用 git archive 固定 mtime 物化构建上下文
+8be2d97 fix(reproducibility): 钉基础镜像 digest + 精确锁定依赖基线，使干净 tag 冷构建可复现
+ad168ef feat: 生产发布基线改造
+7941246 fix(execution): 防御 JSONB 列在 psycopg3 下重复 json.loads — 新增 _as_json,仅 str/bytes 才解析,修复审批后 execute_refund 收尾/SSE 重放//api/audit 崩溃
+251f430 feat: 电商售后多智能体工单系统 — 自托管观测/审计链路 + 预发布演练 + 首次上线门控
+561e97e 首次提交
+
+=== release/v1.0.0-rc1 resolves to commit ===
+3268a1ca128fedf814835095a6dfb5ec36645b55
+
+=== untracked runtime files absent from HEAD (accepted runtime surface) ===
+src/execution/sandbox_faults.py
+src/execution/sandbox_gateway.py
+src/llm/circuit_breaker.py
+src/tools/data_source.py
+src/tools/postgres_data_source.py
+
+=== uncommitted migrations.py (diff stat) ===
+ src/infrastructure/migrations.py | 139 +++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 139 insertions(+)

@@ -1,0 +1,45 @@
+{
+  "backend": "sqlite",
+  "concurrency": 256,
+  "timestamp": "2026-09-04T14:11:18+0800",
+  "gateway": "real sandbox_gateway (HTTP)",
+  "results": [
+    {
+      "scenario": "I1_real_sandbox_same_op_concurrent",
+      "concurrency": 256,
+      "elapsed_seconds": 0.2058,
+      "provider_submit_calls": 1,
+      "distinct_external_txn_id": 1,
+      "execution_records_for_op": 1,
+      "distinct_execution_id": 1,
+      "errors": {},
+      "status": "submitted",
+      "I1_ok": true
+    },
+    {
+      "scenario": "FAIL_real_sandbox_explicit_failure_concurrent",
+      "concurrency": 256,
+      "provider_submit_calls": 1,
+      "provider_compensate_calls": 1,
+      "distinct_reversal_id": 1,
+      "execution_records_for_op": 1,
+      "distinct_execution_id": 1,
+      "errors": {},
+      "terminal_status": "compensated",
+      "FAIL_ok": true
+    },
+    {
+      "scenario": "I2_real_sandbox_cross_tenant_same_idempotency_key",
+      "concurrency_per_tenant": 256,
+      "provider_a_submit_calls": 1,
+      "provider_b_submit_calls": 1,
+      "op_a_execution_records": 1,
+      "op_b_execution_records": 1,
+      "distinct_execution_id_a": 1,
+      "distinct_execution_id_b": 1,
+      "errors": {},
+      "cross_tenant_no_overwrite": true
+    }
+  ],
+  "conclusion": true
+}

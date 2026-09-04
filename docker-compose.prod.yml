@@ -1,0 +1,269 @@
+# Docker Compose — 正式生产（production · after-sales-prod）单节点拓扑
+#
+# 【与 preview 完全隔离】独立 compose 项目名 / 独立网络子网 / 独立数据卷 / 独立备份目录 /
+# 独立随机密钥（deploy/.env.production，已 gitignore）/ 独立库名 after_sales_prod。
+# 不触碰 preview 的任何容器 / 卷 / 备份 / 密钥（./data/preview-*、after-sales-preview_* 均不复用）。
+#
+# 安全基线（沿用 preview 并在生产沿用宪法红线）：
+# 1. 仅 nginx 暴露宿主端口（独立高端口 8080/8843，因 80/443 已被 preview nginx 占用）；
+#    PostgreSQL、Redis、API、前端、worker 全部仅在私有 internal 网，不发布宿主机端口。
+# 2. HTTPS 由 nginx 终结（同源代理）；受信 CA 证书为硬前提（TLS 一节，当前自签非受信 → BLOCKED）。
+# 3. ENV=production 且 AUTH_BACKEND=real：受限环境 fail-closed（AUTH_BACKEND=mock 启动即失败）。
+# 4. migrate（owner/migrator，DDL）与运行角色 app_runtime（LOGIN NOINHERIT NOBYPASSRLS，仅 DML）分离。
+# 5. 首批上线门控 LAUNCH_GATE_STRICT=true + EXECUTION_MODE=shadow（沙箱，不触真实资金）。
+#
+# 用法（在仓库根目录；密钥在 deploy/.env.production）：
+#   docker compose --env-file deploy/.env.production -f docker-compose.prod.yml config
+#   docker compose --env-file deploy/.env.production -f docker-compose.prod.yml up -d
+# 部署/迁移/回滚/健康检查见 deploy/scripts/*.sh 与 deploy/OPS_RUNBOOK.md。
+
+# 独立 compose 项目名：与 preview（after-sales-preview）/ 开发栈隔离。
+name: after-sales-prod
+
+services:
+  postgres:
+    image: docker.1ms.run/library/postgres:17-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-migrator}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须由密钥注入}
+      - POSTGRES_DB=${POSTGRES_DB:-after_sales_prod}
+    # 私有内网：不发布宿主端口。
+    networks: [internal]
+    # 独立数据卷：与 preview ./data/preview-postgres 完全隔离。
+    volumes: ["./data/prod-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-migrator} -d ${POSTGRES_DB:-after_sales_prod} -h localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  redis:
+    image: docker.1ms.run/library/redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD 必须由密钥注入}"]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD 必须由密钥注入}
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    image: after-sales-prod-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "src.infrastructure.migrate_cli"]
+    environment:
+      - ENV=production
+      - DATABASE_MIGRATOR_URL=postgresql://${POSTGRES_USER:-migrator}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-after_sales_prod}
+      - APP_RUNTIME_PASSWORD=${APP_RUNTIME_PASSWORD:?APP_RUNTIME_PASSWORD 必须由密钥注入}
+      - BACKUP_ROLE_PASSWORD=${BACKUP_ROLE_PASSWORD:?BACKUP_ROLE_PASSWORD 必须由密钥注入}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  api:
+    image: after-sales-prod-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - ENV=production
+      - DEPLOY_CONFIG_VERSION=${DEPLOY_CONFIG_VERSION:-0.1.0}
+      - STORAGE_BACKEND=postgres
+      - AUTH_BACKEND=real
+      - AUTH_JWT_SECRET=${AUTH_JWT_SECRET:?AUTH_JWT_SECRET 必须由密钥注入，否则启动 fail-closed}
+      - AUTH_JWT_ISSUER=${AUTH_JWT_ISSUER:-after-sales-prod}
+      - AUTH_JWT_AUDIENCE=${AUTH_JWT_AUDIENCE:-after-sales-prod-web}
+      - AUTH_JWT_TTL_SECONDS=${AUTH_JWT_TTL_SECONDS:-3600}
+      - AUTH_JWT_KID=${AUTH_JWT_KID:-}
+      - AUTH_JWT_ROTATED_SECRETS=${AUTH_JWT_ROTATED_SECRETS:-}
+      - AUTH_LOGIN_CREDENTIALS=${AUTH_LOGIN_CREDENTIALS:?AUTH_LOGIN_CREDENTIALS 必须注入登录凭据表}
+      - AUTH_CREDENTIAL_HASH=${AUTH_CREDENTIAL_HASH:-argon2id}
+      - LOGIN_RATE_LIMIT_STORE=${LOGIN_RATE_LIMIT_STORE:-memory}
+      - LOGIN_RATE_LIMIT_WINDOW_SECONDS=${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      - LOGIN_ACCOUNT_RATE_LIMIT=${LOGIN_ACCOUNT_RATE_LIMIT:-5}
+      - LOGIN_IP_RATE_LIMIT=${LOGIN_IP_RATE_LIMIT:-30}
+      - LOGIN_BACKOFF_MAX_FAILURES=${LOGIN_BACKOFF_MAX_FAILURES:-5}
+      - LOGIN_BACKOFF_BASE_SECONDS=${LOGIN_BACKOFF_BASE_SECONDS:-1.0}
+      - LOGIN_BACKOFF_MAX_SECONDS=${LOGIN_BACKOFF_MAX_SECONDS:-900}
+      - LOGIN_TRUSTED_PROXY_DEPTH=${LOGIN_TRUSTED_PROXY_DEPTH:-1}
+      - DEMO_SEED_ENABLED=false
+      - ENABLE_CORS=false
+      - LAUNCH_ALLOWED_TENANTS=${LAUNCH_ALLOWED_TENANTS:?LAUNCH_ALLOWED_TENANTS 必须注入首批上线租户白名单}
+      - LAUNCH_GATE_STRICT=true
+      - LAUNCH_REQUIRE_APPROVAL=${LAUNCH_REQUIRE_APPROVAL:-true}
+      - LAUNCH_FULL_AUDIT=${LAUNCH_FULL_AUDIT:-true}
+      - LAUNCH_MANUAL_REVIEW=${LAUNCH_MANUAL_REVIEW:-true}
+      - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD:?APP_RUNTIME_PASSWORD 必须由密钥注入}@postgres:5432/${POSTGRES_DB:-after_sales_prod}
+      - DATABASE_MIGRATE_ON_STARTUP=false
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      # 完全自托管 LLM。真实评测/真实自托管端点确认前保持 mock（fail-closed）；确认后改 openai_compatible。
+      - LLM_BACKEND=${LLM_BACKEND:-mock}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://model-endpoint:8001/v1}
+      - LLM_API_KEY=${LLM_API_KEY:?LLM_API_KEY 必须由密钥注入}
+      - LLM_MODEL=${LLM_MODEL:-self-hosted-model}
+      - LLM_ALLOWED_HOSTS=${LLM_ALLOWED_HOSTS:?LLM_ALLOWED_HOSTS 必须显式配置端点网络白名单}
+      - HIGH_CONFIDENCE_MODELS=${HIGH_CONFIDENCE_MODELS:?HIGH_CONFIDENCE_MODELS 必须注入写操作白名单模型}
+      - LLM_EVAL_REPORT_PATH=${LLM_EVAL_REPORT_PATH:-/app/evidence/llm_candidate_eval.json}
+      - EXECUTION_MODE=${EXECUTION_MODE:-shadow}
+      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-mock}
+      - EXECUTION_CALLBACK_HMAC_SECRET=${EXECUTION_CALLBACK_HMAC_SECRET:?EXECUTION_CALLBACK_HMAC_SECRET 必须由密钥注入，禁止默认值}
+      - RETRIEVAL_BACKEND=keyword
+      - CREWAI_ENABLED=false
+      - INTENT_CONFIDENCE_THRESHOLD=0.7
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+      - LOG_JSON_FORMAT=${LOG_JSON_FORMAT:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - METRICS_EXPOSE_INTERNAL_ONLY=true
+      - METRICS_ALLOWED_SOURCES=${METRICS_ALLOWED_SOURCES:-172.31.0.0/16}
+      - DRILL_GAUGE_STATE=${DRILL_GAUGE_STATE:-/app/evidence/dr_metrics/drill_gauges.json}
+    volumes:
+      - ./evidence/llm_candidate_eval.json:/app/evidence/llm_candidate_eval.json:ro
+      - ./deploy/drills/metrics:/app/evidence/dr_metrics:ro
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  worker:
+    image: after-sales-prod-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A src.tasks.worker worker -l info
+    environment:
+      - ENV=production
+      - DEPLOY_CONFIG_VERSION=${DEPLOY_CONFIG_VERSION:-0.1.0}
+      - AUTH_CREDENTIAL_HASH=${AUTH_CREDENTIAL_HASH:-argon2id}
+      - LOGIN_RATE_LIMIT_STORE=${LOGIN_RATE_LIMIT_STORE:-memory}
+      - LOGIN_RATE_LIMIT_WINDOW_SECONDS=${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      - LOGIN_ACCOUNT_RATE_LIMIT=${LOGIN_ACCOUNT_RATE_LIMIT:-5}
+      - LOGIN_IP_RATE_LIMIT=${LOGIN_IP_RATE_LIMIT:-30}
+      - LOGIN_BACKOFF_MAX_FAILURES=${LOGIN_BACKOFF_MAX_FAILURES:-5}
+      - LOGIN_BACKOFF_BASE_SECONDS=${LOGIN_BACKOFF_BASE_SECONDS:-1.0}
+      - LOGIN_BACKOFF_MAX_SECONDS=${LOGIN_BACKOFF_MAX_SECONDS:-900}
+      - LOGIN_TRUSTED_PROXY_DEPTH=${LOGIN_TRUSTED_PROXY_DEPTH:-1}
+      - DEMO_SEED_ENABLED=false
+      - STORAGE_BACKEND=postgres
+      - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD:?APP_RUNTIME_PASSWORD 必须由密钥注入}@postgres:5432/${POSTGRES_DB:-after_sales_prod}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - EXECUTION_MODE=${EXECUTION_MODE:-shadow}
+      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-mock}
+      - EXECUTION_CALLBACK_HMAC_SECRET=${EXECUTION_CALLBACK_HMAC_SECRET:?EXECUTION_CALLBACK_HMAC_SECRET 必须由密钥注入，禁止默认值}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+      - LOG_JSON_FORMAT=${LOG_JSON_FORMAT:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,redis; redis.from_url(os.environ['REDIS_URL']).ping()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  frontend:
+    image: after-sales-prod-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: "/api"
+        API_PROXY_TARGET: ""
+    environment:
+      - NODE_ENV=production
+    networks: [internal]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # 受控反向代理 + HTTPS：仅暴露独立宿主高端口 8080/8843（80/443 已被 preview nginx 占用）。
+  # 受信 CA 证书为生产硬前提（当前自签 → BLOCKED，见 DEPLOY_BASELINE.md）。
+  nginx:
+    image: docker.1ms.run/library/nginx:1.27-alpine
+    ports:
+      - "8080:80"
+      - "8843:443"
+    volumes:
+      - ./deploy/nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/secrets/certs:/etc/nginx/certs:ro
+    networks: [edge, internal]
+    depends_on:
+      frontend:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- -T 3 http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # 每 15 分钟【加密】pg_dump -Fc（最小权限 backup_role）到持久 /backups，附 SHA-256，可选异机。
+  # 独立备份目录 ./data/prod-backups（与 preview ./data/preview-backups 完全隔离）。
+  backup:
+    image: docker.1ms.run/library/postgres:17-alpine
+    command: ["sh", "/app/backup.sh"]
+    environment:
+      - BACKUP_DB_URL=postgresql://${BACKUP_ROLE_USER:-backup_role}:${BACKUP_ROLE_PASSWORD:?BACKUP_ROLE_PASSWORD 必须由密钥注入}@postgres:5432/${POSTGRES_DB:-after_sales_prod}
+      - BACKUP_ENC_KEY=${BACKUP_ENC_KEY:?BACKUP_ENC_KEY 必须由密钥注入（随机对称加密密钥）}
+      - BACKUP_CIPHER=${BACKUP_CIPHER:-aes-256-cbc}
+      - BACKUP_KEEP=${BACKUP_KEEP:-8}
+      - BACKUP_INTERVAL_SECONDS=${BACKUP_INTERVAL_SECONDS:-900}
+      - BACKUP_REMOTE_DIR=${BACKUP_REMOTE_DIR:-/offsite}
+      - BACKUP_RSYNC_DEST=${BACKUP_RSYNC_DEST:-}
+    volumes:
+      - ./deploy/scripts/preview_backup_scheduler.sh:/app/backup.sh:ro
+      - ./data/prod-backups:/backups
+      - ${BACKUP_REMOTE_MOUNT:-./data/prod-backups-offsite}:/offsite
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  # edge：仅 nginx 挂载，宿主 8080/8843 进出。
+  edge:
+    driver: bridge
+  # internal：数据面 + 应用面私网。独立子网 172.31.0.0/16（与 preview 172.30.0.0/16 隔离），
+  # 使 METRICS_ALLOWED_SOURCES 默认值与网段确定性一致。
+  internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/16

@@ -20,6 +20,24 @@ log()  { printf '\n\033[1;34m[%s]\033[0m %s\n' "$(date '+%H:%M:%S')" "$*"; }
 warn() { printf '\033[1;33m[WARN]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# ---- DR 灾备：回填 RPO/RTO gauge（t8）----
+# 调用 drill_metric_exporter.py 把实测 RPO/RTO 写入状态文件（src/api/routes.py 的 /api/metrics 在
+# 渲染时合并进 api 进程内 registry；Prometheus 经 api:8000/api/metrics 即可采集，闭合 RpoExceeded/RtoExceeded）。
+# 标签只用有界 component="pg_backup"，绝不含高基数/敏感维度。回填为**增量**，失败仅告警不中断（md 证据仍写入）。
+# 用法：dr_backfill_gauges <rpo> <rto> [backup_file]   （某项可传空表示不覆盖）
+dr_backfill_gauges() {
+  local rpo="${1:-}" rto="${2:-}" backup="${3:-}"
+  local py="${PYTHON:-$(command -v python3 || command -v python || true)}"
+  [ -n "$py" ] || { warn "未找到 python3/python，跳过 RPO/RTO gauge 回填。"; return 0; }
+  local state="${DRILL_GAUGE_STATE:-$DEPLOY_DIR/drills/metrics/drill_gauges.json}"
+  local args=()
+  [ -n "$rpo" ] && args+=(--rpo "$rpo")
+  [ -n "$rto" ] && args+=(--rto "$rto")
+  [ -n "$backup" ] && args+=(--backup "$(basename "$backup")")
+  "$py" "$SCRIPT_DIR/drill_metric_exporter.py" write --state "$state" "${args[@]}" \
+    && log "RPO/RTO gauge 回填完成：$state" || warn "RPO/RTO gauge 回填失败（可忽略，证据 md/json 已写入）。"
+}
+
 # 允许覆盖 docker 二进制（测试/CI）。
 DOCKER="${DOCKER:-docker}"
 maybe_docker() {

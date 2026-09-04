@@ -63,10 +63,25 @@ def test_launch_gate_ok_when_satisfied_and_strict_passes():
     s = Settings(_env_file=None, env="preview", storage_backend="postgres",
                  launch_allowed_tenants="TENANT-A", auth_backend="real", auth_jwt_secret="x",
                  execution_mode="shadow", execution_provider="mock",
+                 business_data_backend="postgres",
                  launch_require_approval=True, launch_full_audit=True,
                  launch_manual_review=True, launch_gate_strict=True)
     assert verify_launch_gate(s)["ok"] is True
     enforce_strict(s)  # 不抛
+
+
+def test_launch_gate_flags_restricted_env_with_mock_business_data_source():
+    # Mock 业务数据源仅限测试环境：受限环境（preview/production）应配置为 postgres，
+    # 否则视为业务读路径未接入受控真实系统（fail-closed）。
+    s = Settings(_env_file=None, env="preview", storage_backend="postgres",
+                 launch_allowed_tenants="TENANT-A", auth_backend="real", auth_jwt_secret="x",
+                 execution_mode="shadow", execution_provider="mock",
+                 business_data_backend="mock",
+                 launch_require_approval=True, launch_full_audit=True,
+                 launch_manual_review=True, launch_gate_strict=True)
+    report = verify_launch_gate(s)
+    assert report["ok"] is False
+    assert any("BUSINESS_DATA_BACKEND" in v for v in report["violations"])
 
 
 def test_enforce_strict_raises_on_violation():

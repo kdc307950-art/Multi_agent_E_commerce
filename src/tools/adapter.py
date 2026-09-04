@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from src.llm.validation import validate_address_change, validate_order_ref
-from src.tools import mock_data
+from src.tools.data_source import BusinessDataSource, MockBusinessDataSource, build_data_source
 from src.execution.engine import ExecutionEngine
 from src.execution.provider import FundsProvider
 from src.execution.types import ExecutionMode, ExecutionOutcome, ExecutionStatus
@@ -34,9 +34,11 @@ STAFF_ROLES: set[str] = {"agent", "admin", "approver"}
 class AdapterError(Exception):
     """适配器业务错误，携带机器可读代码（供节点 fail-closed 记录）。"""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, owner: str | None = None) -> None:
         self.code = code
         self.message = message
+        # 归属拒绝时携带订单所有者，供路由/审计区分「同租户跨用户」与「不存在/跨租户」。
+        self.owner = owner
         super().__init__(message)
 
 
@@ -77,18 +79,21 @@ class EcommerceAdapter:
     def __init__(self, *, refund_window_days: int = 7, return_window_days: int = 30,
                  execution_mode: ExecutionMode = ExecutionMode.SHADOW,
                  callback_secret: str = "", provider: FundsProvider | None = None,
-                 confirm_timeout_seconds: float = 900.0) -> None:
+                 confirm_timeout_seconds: float = 900.0,
+                 data_source: BusinessDataSource | None = None) -> None:
         self._refund_window = refund_window_days
         self._return_window = return_window_days
         self._execution_mode = execution_mode
         self._callback_secret = callback_secret
         self._provider = provider
         self._confirm_timeout = confirm_timeout_seconds
+        # 数据源缺省为 Mock（仅开发/测试）；生产由 build_adapter 注入 postgres 数据源。
+        self._data_source = data_source or MockBusinessDataSource()
 
-    # ---- 订单/物流（带归属校验）----
+    # ---- 订单/物流（带归属校验；数据源强制租户作用域）----
     def get_order(self, tenant_id: str, user_id: str, role: str, order_id: str) -> OrderRecord:
         order_id = validate_order_ref(order_id).order_id  # 非法格式 → LLMOutputError
-        raw = mock_data.get_order(tenant_id, order_id)
+        raw = self._data_source.get_order(tenant_id, order_id)
         if raw is None:
             raise AdapterError("order_not_found", f"订单 {order_id} 不存在或不属于本租户")
         self._assert_ownership(raw, tenant_id, user_id, role)
@@ -100,9 +105,11 @@ class EcommerceAdapter:
         # 归属校验（不存在的订单也返回 None，规避信息泄露；写路径已单独拒绝）。
         try:
             self.get_order(tenant_id, user_id, role, order_id)
-        except (AdapterError, Exception):
+        except AdapterError:
+            # 仅"不存在/无权"等业务拒绝静默返回 None；系统性错误（如数据源不可用/DB 断连）
+            # 一律向上抛，由节点/路由 fail-closed 转人工，不掩盖数据面故障。
             return None
-        return mock_data.get_shipping(tenant_id, order_id)
+        return self._data_source.get_shipping(tenant_id, order_id)
 
     # ---- 资格 ----
     def check_refund_eligibility(self, tenant_id: str, user_id: str, role: str,
@@ -155,6 +162,14 @@ class EcommerceAdapter:
         """受控执行开关：仅当 execution_mode=live 且提供方已配置时才开启真实调用。"""
         return self._execution_mode is ExecutionMode.LIVE and self._provider is not None
 
+    @property
+    def provider_name(self) -> str:
+        """执行引擎的资金提供方标识（仅用于回调安全日志等有界观测字段；未配置返回 'none'）。
+
+        只读、不暴露敏感配置，仅供消费端平台级安全日志记录来源，绝不作为授权依据。
+        """
+        return self._provider.__class__.__name__ if self._provider is not None else "none"
+
     def make_execution_engine(self, store) -> ExecutionEngine:
         """按适配器配置构造执行引擎（供回调端点/对账任务复用同一模式与密钥）。"""
         return ExecutionEngine(
@@ -192,7 +207,7 @@ class EcommerceAdapter:
         if raw["tenant_id"] != tenant_id:
             raise AdapterError("cross_tenant_denied", "跨租户访问被拒绝")
         if raw["user_id"] != user_id and role not in STAFF_ROLES:
-            raise AdapterError("order_not_owned", "无权访问该订单")
+            raise AdapterError("order_not_owned", "无权访问该订单", owner=raw["user_id"])
 
     @staticmethod
     def _to_record(raw: dict) -> OrderRecord:
@@ -205,7 +220,10 @@ class EcommerceAdapter:
 
 
 def build_adapter(settings) -> EcommerceAdapter:
-    """按配置构造电商适配器（资格窗口可配置；默认 7/30 天；执行开关 shadow/live 可配置）。"""
+    """按配置构造电商适配器（资格窗口可配置；默认 7/30 天；执行开关 shadow/live 可配置）。
+
+    data_source 按 `business_data_backend` 构建（mock | postgres），读路径接受控真实系统。
+    """
     from src.execution import build_provider as _build_provider
     from src.execution.types import ExecutionMode as _Mode
 
@@ -219,4 +237,5 @@ def build_adapter(settings) -> EcommerceAdapter:
         callback_secret=str(getattr(settings, "execution_callback_hmac_secret", "")),
         provider=provider,
         confirm_timeout_seconds=float(getattr(settings, "execution_confirm_timeout_seconds", 900.0)),
+        data_source=build_data_source(settings),
     )

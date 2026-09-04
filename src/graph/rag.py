@@ -13,7 +13,8 @@ from langgraph.graph import END, START, StateGraph
 
 from src.graph.state import AgentState, last_message_text
 from src.llm.base import LLMError
-from src.retrieval import KeywordRetriever, Retriever
+from src.retrieval import DataSourceRetriever, Retriever
+from src.tools.data_source import MockBusinessDataSource
 
 # 阈值
 RELEVANCE_THRESHOLD = 7
@@ -24,10 +25,12 @@ HALLUCINATION_MAX_RETRIES = 2
 def make_rag_graph(llm, retriever: Retriever | None = None):
     """构建 RAG 子图（无独立 checkpointer，作为主图的一个节点使用）。
 
-    retriever 缺省为 KeywordRetriever（自托管确定性检索）。任何检索/模型异常一律
-    fail-closed 设 falls_to_error=True → 主图 handle_error 转人工。
+    retriever 缺省为基于受控业务数据源的 `DataSourceRetriever`（Mock 数据源，租户作用域），
+    不再直接读 `mock_data.KNOWLEDGE_BASE`。生产路径由 `build_retriever(settings)` 注入
+    DataSourceRetriever（postgres 数据源）。任何检索/模型异常一律 fail-closed
+    设 falls_to_error=True → 主图 handle_error 转人工。
     """
-    retriever = retriever or KeywordRetriever()
+    retriever = retriever or DataSourceRetriever(MockBusinessDataSource())
 
     def initialize_rag_run(state: AgentState) -> dict:
         return {

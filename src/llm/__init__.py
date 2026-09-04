@@ -43,6 +43,8 @@ def build_llm(settings) -> BaseLLM:
             restricted=restricted,
             redact_log=bool(getattr(settings, "llm_log_redact", True)),
             high_confidence_models=whitelist,
+            cb_failure_threshold=int(getattr(settings, "llm_cb_failure_threshold", 5)),
+            cb_cooldown_seconds=float(getattr(settings, "llm_cb_cooldown_seconds", 30.0)),
         )
     raise ValueError(f"未知 LLM 后端: {backend!r}（可选 mock | openai_compatible）")
 

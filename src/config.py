@@ -123,12 +123,23 @@ class Settings(BaseSettings):
     # 迁移阶段为 `app_runtime` 运行角色设置的口令（创建/更新角色用）。仅 migrate 服务需要；
     # 由服务器环境密钥注入，禁止硬编码。留空则创建角色时不设置口令（仅限本地开发）。
     app_runtime_password: str = ""
+    # 迁移阶段为**最小权限备份角色** `backup_role` 设置的口令。该角色仅 LOGIN + CONNECT +
+    # USAGE + SELECT（表/序列），无任何写/DDL 权限，专供备份脚本做 pg_dump 只读导出。
+    # 由服务器环境密钥注入，禁止硬编码；留空则创建角色时不设置口令（仅限本地开发）。
+    backup_role_password: str = ""
     # PostgresStore / checkpoint 连接池（业务数据面，SQLAlchemy/psycopg3 + AsyncConnectionPool）
     postgres_pool_size: int = 10
     postgres_max_overflow: int = 10
     # 会话/检查点清理批次与周期（滑动 7 天保留后的过期清理）
     cleanup_batch_size: int = 100
     session_cleanup_interval_seconds: int = 3600
+
+    # --- 业务读路径数据源（订单/物流/政策；受控真实系统 vs Mock）---
+    # mock（默认，仅开发/测试）：订单/物流/政策读自 src.tools.mock_data（完全自托管");
+    # postgres（生产目标）：读 PostgreSQL（orders/shipping_events/policy_documents，RLS +
+    # 服务端注入 tenant_id）。生产/受限环境应配置为 postgres；校验失败（缺失 database_url）即 fail-closed，
+    # 绝不静默回退到 mock 顶替生产读路径。Mock 只保留在测试环境。
+    business_data_backend: str = "mock"
 
     # --- LLM（本地/内网 OpenAI 兼容端点，完全自托管）---
     # 默认使用内置规则 Mock；指向真实端点时需配置 base_url/model/api_key。
@@ -146,6 +157,11 @@ class Settings(BaseSettings):
     llm_allowed_hosts: str = ""
     # 是否启用脱敏日志（掩码手机号/地址/订单号/密钥/授权头；默认开启）。
     llm_log_redact: bool = True
+    # 熔断器：连续失败达到阈值 → 打开，冷却期内快速失败（fail-closed）转人工。
+    # failure_threshold<=0 表示禁用（仅测试/本地需要时关闭；生产不放宽）。
+    llm_cb_failure_threshold: int = 5
+    # 熔断打开后的冷却时间（秒），到期进入 half-open 放行一次探针。
+    llm_cb_cooldown_seconds: float = 30.0
 
     # --- 模型能力矩阵（写操作白名单，评测驱动，不可硬编码为真实模型名）---
     # 只有"通过写操作专项评测"的明确 model id 才能写入本白名单；其余一律拒绝写并转人工。
@@ -187,8 +203,18 @@ class Settings(BaseSettings):
     # execution_mode: shadow（第一轮：只生成待执行记录 + 模拟回执，不触真实资金）
     #               | live（受控执行开关：调用 FundsProvider，需沙箱端到端验收后才允许开启）
     execution_mode: str = "shadow"
-    # 外部资金/业务网关提供方。当前仅 "mock"（沙箱）；真实网关接入属后期替换点。
+    # 外部资金/业务网关提供方。"mock"（确定性模拟提供方，不触真实接口） |
+    # "sandbox_http"（调用自部署网关沙箱服务，见 src/execution/sandbox_gateway.py）。
+    # 接入 sandbox_http 时必须配置 gateway_base_url（见下），否则 build_provider fail-closed。
     execution_provider: str = "mock"
+    # --- 自部署网关沙箱（execution_provider=sandbox_http 时使用；完全自托管，不触真实资金）---
+    # 沙箱网关 base_url（如 http://127.0.0.1:8010）。缺省为空；一旦 execution_provider=sandbox_http，
+    # 但未配置 base_url，build_provider 即抛 gateway_unconfigured（fail-closed，绝不回退 mock）。
+    gateway_base_url: str = ""
+    # 沙箱网关 API Key（由服务器环境变量注入，禁止硬编码明文；为空仅限本地开发放行）。
+    gateway_api_key: str = ""
+    # 沙箱网关单次调用总超时（秒，deadline，不叠加超时）。
+    gateway_timeout_seconds: float = 10.0
     # 回调 HMAC-SHA256 验签密钥（外部网关签名共享密钥；生产必须由环境密钥注入）。
     execution_callback_hmac_secret: str = "shadow-callback-secret"
     # 提交后等待最终回调确认的超时（秒）；超时未确认进入对账任务收口。
@@ -209,6 +235,16 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "http://localhost:3002"
+
+    # --- 指标暴露（/api/metrics 内网化；见 deploy/EGRESS_POLICY.md）---
+    # /api/metrics 只允许来源 IP 命中 metrics_allowed_sources（逗号分隔 IP/CIDR）的抓取，
+    # 否则 403。来源判定复用 login_trusted_proxy_depth 的可信代理深度（X-Forwarded-For 取
+    # 最后一个可信值；无代理时取直连 peer）。
+    # 安全基线：受限环境（preview/production）恒为“仅内网”——无论 metrics_expose_internal_only
+    # 取值如何，白名单为空一律 fail-closed 拒绝（绝不因配置遗漏把指标暴露公网）。开发/测试
+    # 为非受限环境，可关闭门控自由抓取（本机/回环），也可显式指定网段收紧。
+    metrics_expose_internal_only: bool = False
+    metrics_allowed_sources: str = ""
 
     @property
     def is_test(self) -> bool:
@@ -237,6 +273,11 @@ class Settings(BaseSettings):
     def high_confidence_model_set(self) -> set[str]:
         """写操作能力矩阵白名单（模型名显式白名单）。"""
         return {s.strip() for s in self.high_confidence_models.split(",") if s.strip()}
+
+    @property
+    def metrics_allowed_source_list(self) -> list[str]:
+        """指标抓取来源白名单（IP/CIDR，去空白、去空项）。"""
+        return [s.strip() for s in self.metrics_allowed_sources.split(",") if s.strip()]
 
 
 @lru_cache(maxsize=1)

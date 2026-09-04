@@ -39,12 +39,17 @@ def reset_pg_schema(engine) -> None:
     migrations.initialize_all(engine)
 
 
-APP_RUNTIME_USER = "app_runtime"
-APP_RUNTIME_PASSWORD = "apppass"
+APP_RUNTIME_USER = os.environ.get("APP_RUNTIME_USER", "app_runtime")
+APP_RUNTIME_PASSWORD = os.environ.get("APP_RUNTIME_PASSWORD", "apppass")
 
 
 def app_runtime_dsn() -> str:
-    """在 DATABASE_URL 的 host/port/db 上换成 app_runtime 运行角色的连接串。"""
+    """在 DATABASE_URL 的 host/port/db 上换成 app_runtime 运行角色的连接串。
+
+    运行角色凭据可用环境变量 `APP_RUNTIME_USER` / `APP_RUNTIME_PASSWORD` 覆盖（缺省
+    app_runtime/apppass，仅本地开发）。预览/生产集群的 app_runtime 口令由密钥注入，
+    因此真实环境必须设置 `APP_RUNTIME_PASSWORD`，否则会认证失败。
+    """
     from urllib.parse import urlparse, urlunparse
 
     dsn = pg_dsn()

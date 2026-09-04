@@ -32,10 +32,30 @@ from src.execution.types import (
     ReconciliationResult,
     can_transition,
 )
-from src.execution.verification import (
-    normalize_callback_payload,
-    verify_hmac_signature,
-)
+from src.execution.verification import verify_hmac_signature
+
+
+def _metrics():
+    """惰性获取指标收集器。
+
+    顶层常量 import 会触发 engine→observability→llm→tools→adapter→engine 的包级循环导入，
+    故延迟到首次调用时导入；运行时行为与顶层 `from src.observability.metrics import get_metrics`
+    完全一致（所有调用点都在方法体内，首次调用发生在模块完成加载之后）。
+    """
+    from src.observability.metrics import get_metrics
+    return get_metrics()
+
+
+def _reconcile_kind(reason: str) -> str:
+    """把对账 mismatch 的细粒度 reason 归一为有界 kind（`query_failed:CODE` → `query_failed`）。
+
+    reason 来自代码内固定集合（missing_external_txn_id / provider_not_configured /
+    query_failed / already_terminal_confirmed / unknown_provider_status ...），
+    归一后作为有界标签值，绝不携带订单/租户等明细。"""
+    if not reason:
+        return "unknown"
+    base = reason.split(":", 1)[0].strip()
+    return (base[:64]) if base else "unknown"
 
 
 def _derive_external_txn_id(idempotency_key: str) -> str:
@@ -92,14 +112,21 @@ class ExecutionEngine:
             amount=amount,
             now=_now(),
         )
+        # 执行提交计数（有界标签: mode=shadow|live）；仅对新执行记录计数（重放幂等不重复计）。
+        _metrics().counter("execution_submit_total", ("mode",), {"mode": mode.value})
         self.store.append_audit(tenant_id, operation.thread_id, "execution.create",
                                 "execution", record.execution_id,
                                 {"operation_id": operation.operation_id,
                                  "mode": mode.value, "amount": amount}, _now())
 
         if mode is ExecutionMode.SHADOW:
-            return self._run_shadow(record, operation)
-        return self._run_live(record, operation)
+            outcome = self._run_shadow(record, operation)
+        else:
+            outcome = self._run_live(record, operation)
+        # 执行结果收敛计数（有界标签: mode,status）。
+        _metrics().counter("execution_outcome_total", ("mode", "status"),
+                              {"mode": mode.value, "status": outcome.status.value})
+        return outcome
 
     def _run_shadow(self, record: ExecutionRecord, operation: Operation) -> ExecutionOutcome:
         """shadow：不触真实资金，合成确定性的模拟回执并立即收敛为 confirmed。"""
@@ -131,10 +158,20 @@ class ExecutionEngine:
                                 message="执行完成（shadow 模拟回执，未调用真实资金接口）。")
 
     def _run_live(self, record: ExecutionRecord, operation: Operation) -> ExecutionOutcome:
-        """live：显式 provider 提交；成功/失败/不确定分别收敛，绝不静默放行。"""
+        """live：显式 provider 提交；成功/失败/不确定分别收敛，绝不静默放行。
+
+        单执行守卫：`claim_execution_submit` 原子抢占"本次提交外部"的权利（attempts 0→1），
+        仅一个并行线程成为提交者；其余并行线程（读到同一 pending_submit 记录）被判为非提交者，
+        直接幂等重放——**绝不重复调用 provider.submit、绝不进入 submitted->submitted 状态跃迁竞态**
+        （消除"并发重复执行/重复补偿"隐患）。终态记录在 claim 时返回 False，保留 terminal_locked。
+        """
         if self.provider is None:
             raise DomainError(ErrorCode.EXECUTION_FAILED,
                               "live 执行模式必须配置 FundsProvider（受控执行开关未开启）。", 503)
+        # 单执行守卫：非提交者幂等重放，不重复提交外部。
+        if not self.store.claim_execution_submit(record.tenant_id, record.execution_id):
+            fresh = self.store.get_execution_record(record.tenant_id, record.execution_id)
+            return self._replay_outcome(fresh, operation)
         try:
             result = self.provider.submit(
                 tenant_id=operation.tenant_id, operation_id=operation.operation_id,
@@ -167,9 +204,16 @@ class ExecutionEngine:
         provider_status = result.get("status")
         if provider_status in ("succeeded", "success"):
             # 已提交外部，等待最终回调确认（回调重放只重放不重复；对账兜底）。
+            # expected_status=PENDING_SUBMIT：CAS 只在记录仍为 pending 时推进到 submitted；
+            # 若已被其他线程/回调并发推进（如已 confirmed/compensated），返回现状记录 → 幂等重放，
+            # 不抛 submitted->submitted 之类非法跃迁（red/yellow 点②）。
             record = self._transition(record, ExecutionStatus.SUBMITTED,
+                                      expected_status=ExecutionStatus.PENDING_SUBMIT,
                                       external_txn_id=external_txn_id, submitted_at=_now(),
                                       receipt=result.get("receipt"))
+            if record.status is not ExecutionStatus.SUBMITTED:
+                # CAS 落空（已被并发推进到终态/其他态）→ 按现状幂等重放，不重复提交/不抛错。
+                return self._replay_outcome(record, operation)
             op = self.store.update_operation(
                 operation.tenant_id, operation.operation_id, OperationStatus.EXECUTED,
                 result={"execution_status": ExecutionStatus.SUBMITTED.value,
@@ -201,6 +245,9 @@ class ExecutionEngine:
                                     operation_status=OperationStatus.EXECUTED,
                                     receipt=record.compensation_result,
                                     message="外部执行失败，已补偿（回滚）。")
+        # 执行失败且补偿失败 → 人工介入（kind=execution_handoff，有界标签）。
+        _metrics().counter("human_intervention_total", ("kind",),
+                              {"kind": "execution_handoff"})
         return ExecutionOutcome(execution_id=record.execution_id,
                                 operation_id=operation.operation_id,
                                 status=record.status, mode=record.mode,
@@ -232,30 +279,58 @@ class ExecutionEngine:
                                         result={"execution_status": ExecutionStatus.COMPENSATED.value,
                                                 "mode": record.mode.value, "compensated": True,
                                                 "message": "外部执行失败，已补偿（回滚）。"})
+            self.store.append_audit(
+                tenant_id, "execution", "execution.compensated", "execution", record.execution_id,
+                {"operation_id": operation_id, "reversal_id": (comp.get("receipt") or {}).get("reversal_id"),
+                 "reason": "dispatch_failure_compensated"}, _now())
         else:
             record = self._transition(record, ExecutionStatus.COMPENSATION_FAILED,
                                       compensation_status="compensation_failed", confirmed_at=_now())
             self.store.update_operation(tenant_id, operation_id, OperationStatus.HUMAN_HANDOFF,
                                         result={"execution_status": ExecutionStatus.COMPENSATION_FAILED.value,
                                                 "message": "执行失败且补偿失败，已转人工对账。"})
+            self.store.append_audit(
+                tenant_id, "execution", "execution.compensation_failed", "execution", record.execution_id,
+                {"operation_id": operation_id, "reason": comp.get("reason", "compensation_failed"),
+                 "kind": "human_handoff"}, _now())
         return record
 
     # ------------------------------------------------------------------
     # 补偿
     # ------------------------------------------------------------------
     def compensate(self, tenant_id: str, execution_id: str) -> dict:
-        """对一笔执行发起补偿（回滚）。供后台补偿任务/对账调用。"""
+        """对一笔执行发起补偿（回滚）。供后台补偿任务/对账调用。
+
+        幂等：记录已处于终止性补偿态（COMPENSATED / COMPENSATION_FAILED）时**幂等重放**——
+        返回既有补偿结果，不再发起外部反向、不再跃迁（终态封闭）。并发下多个线程对同一记录
+        反复补偿也只产生一次外部反向/一次跃迁（其余按现状收敛/返回既有结果），绝不抛
+        "compensated -> compensated" 之类非法跃迁给调用方。
+        """
         record = self.store.get_execution_record(tenant_id, execution_id)
         if record is None:
             raise DomainError(ErrorCode.NOT_FOUND, "执行记录不存在", 404)
+        # 终态封闭：已补偿/补偿失败 → 幂等重放既有结果（补偿记录含 reversal_id，重放一致）。
+        if record.status in (ExecutionStatus.COMPENSATED, ExecutionStatus.COMPENSATION_FAILED):
+            return {"status": "succeeded" if record.status is ExecutionStatus.COMPENSATED else "failed",
+                    "receipt": record.compensation_result or {},
+                    "replayed": True}
         result = self._compensate(record)
         if result.get("status") == "succeeded":
             self._transition(record, ExecutionStatus.COMPENSATED,
                              compensation_status="compensated",
                              compensation_result=result.get("receipt"), confirmed_at=_now())
+            self.store.append_audit(
+                tenant_id, "execution", "execution.compensated", "execution", execution_id,
+                {"operation_id": record.operation_id,
+                 "reversal_id": (result.get("receipt") or {}).get("reversal_id"),
+                 "reason": "manual_compensate"}, _now())
         else:
             self._transition(record, ExecutionStatus.COMPENSATION_FAILED,
                              compensation_status="compensation_failed", confirmed_at=_now())
+            self.store.append_audit(
+                tenant_id, "execution", "execution.compensation_failed", "execution", execution_id,
+                {"operation_id": record.operation_id, "reason": result.get("reason", "compensation_failed"),
+                 "kind": "human_handoff"}, _now())
         return result
 
     def _compensate(self, record: ExecutionRecord) -> dict:
@@ -276,10 +351,15 @@ class ExecutionEngine:
     # 回调验签 + 重放保护
     # ------------------------------------------------------------------
     def apply_callback(self, raw_body: bytes, signature: str) -> CallbackResult:
-        """外部资金网关回调：验签 → 定位执行记录 → 非重放窗口 → 状态跃迁。
+        """外部资金网关回调：验签 → 定位执行记录 → 非重放窗口 → 状态跃迁（原子应用）。
+
+        所有 DB 写（nonce 记账 + 状态 CAS 终态封闭 + 操作更新 + 审计写入）由
+        `store.apply_callback_atomic` 在**同一事务**内完成，杜绝「记账成功但状态未跃迁」等
+        中途失败产生的状态不一致。验签/载荷解析/标识提取在引擎层（不触 DB）。
 
         非重放约定：
-        - 终态记录（confirmed/compensated/mismatch/...）封闭：任何后续回调都视为重放，不再生效；
+        - 终态记录（confirmed/compensated/mismatched/human_handoff/...）封闭：任何异/新 nonce
+          回调都被 terminal_locked 拒绝，绝不覆盖终态（防重复扣款/退款）；
         - 与已记账 nonce 完全相同的重投 → 重放（只重放不重复生效）；
         - 一个真实的新 nonce（合法的后续/最终回调）在终态前允许应用（first-wins 终态封闭）。
         """
@@ -293,70 +373,29 @@ class ExecutionEngine:
         execution_id = str(payload.get("execution_id") or "")
         if not tenant_id or not execution_id:
             return CallbackResult(applied=False, reason="missing_identity")
-        record = self.store.get_execution_record(tenant_id, execution_id)
-        if record is None:
-            return CallbackResult(applied=False, reason="not_found", execution_id=execution_id)
-
-        # 终态封闭：防重复扣款/退款（重放不再生效）。
-        if record.is_terminal:
-            return CallbackResult(applied=False, reason="replay", execution_id=execution_id,
-                                  status=record.status.value)
-
         nonce = str(payload.get("nonce") or "")
         if not nonce:
             return CallbackResult(applied=False, reason="missing_nonce", execution_id=execution_id)
-        # 非重放窗口：记账 nonce；完全相同的重投 → 重放。
-        _claimed_record, is_replay = self.store.claim_callback(tenant_id, execution_id, nonce)
-        if is_replay:
-            return CallbackResult(applied=False, reason="replay", execution_id=execution_id,
-                                  status=record.status.value)
 
-        # 金额校验：回调金额必须与执行记录一致，否则冲突转人工。
-        cb_amount = payload.get("amount")
-        if cb_amount is not None and record.amount is not None and float(cb_amount) != record.amount:
-            record = self._transition(record, ExecutionStatus.MISMATCHED,
-                                      last_error="amount_mismatch", confirmed_at=_now())
-            self.store.update_operation(tenant_id, record.operation_id, OperationStatus.HUMAN_HANDOFF,
-                                        result={"execution_status": ExecutionStatus.MISMATCHED.value,
-                                                "message": "回调金额与执行记录不一致，已转人工对账。"})
-            return CallbackResult(applied=False, reason="amount_mismatch", execution_id=execution_id,
-                                  status=record.status.value)
+        # 原子回调应用（含非重放窗口 + 终态封闭 + 操作/审计联动）。
+        outcome = self.store.apply_callback_atomic(
+            tenant_id, execution_id=execution_id, nonce=nonce, payload=payload, now=_now())
 
-        mapping = normalize_callback_payload(record.status.value, payload)
-        next_status = ExecutionStatus(mapping["next"])
-        if next_status == record.status:
-            # 中间态（processing/unknown）：保持 submitted，不回执变更；会计入对账窗口。
-            return CallbackResult(applied=False, reason="processing", execution_id=execution_id,
-                                  status=record.status.value)
+        if outcome.reason == "failed_dispatch":
+            # 外部明确失败：原子方法已收敛到 failed_dispatch（非终态）；补偿/转人工决策依赖
+            # provider，在引擎层收口（后台对账任务同路径幂等补偿，不会重复生效）。
+            record = self.store.get_execution_record(tenant_id, execution_id)
+            record = self._settle_after_dispatch_failure(
+                record, record.tenant_id, record.operation_id)
+            return CallbackResult(applied=True, reason="failed_dispatch", execution_id=execution_id,
+                                  status=record.status.value, receipt=record.receipt)
 
-        if not can_transition(record.status, next_status):
-            record = self._transition(record, ExecutionStatus.MISMATCHED,
-                                      last_error="illegal_transition", confirmed_at=_now())
-            self.store.update_operation(tenant_id, record.operation_id, OperationStatus.HUMAN_HANDOFF,
-                                        result={"execution_status": ExecutionStatus.MISMATCHED.value,
-                                                "message": "回调状态跃迁非法，已转人工对账。"})
-            return CallbackResult(applied=False, reason="illegal_transition", execution_id=execution_id,
-                                  status=record.status.value)
-
-        confirmed_at = _now()
-        if next_status is ExecutionStatus.CONFIRMED:
-            receipt = {"external_txn_id": payload.get("external_txn_id") or record.external_txn_id,
-                       "order_id": record.order_id, "amount": record.amount or cb_amount,
-                       "status": "succeeded", "provider_callback": True, "ts": confirmed_at}
-            self._transition(record, next_status, confirmed_at=confirmed_at, receipt=receipt)
-            self.store.update_operation(tenant_id, record.operation_id, OperationStatus.EXECUTED,
-                                        result={"execution_status": ExecutionStatus.CONFIRMED.value,
-                                                "mode": record.mode.value,
-                                                "receipt": receipt,
-                                                "message": "执行已确认（外部回调验签通过）。"})
-            return CallbackResult(applied=True, reason="confirmed", execution_id=execution_id,
-                                  status=ExecutionStatus.CONFIRMED.value, receipt=receipt)
-        # 外部失败回调 → 走失败补偿/转人工。
-        record = self._transition(record, next_status, confirmed_at=confirmed_at)
-        outcome = self._settle_after_dispatch_failure(
-            record, record.tenant_id, record.operation_id)
-        return CallbackResult(applied=True, reason="failed_dispatch", execution_id=execution_id,
-                              status=outcome.status.value, receipt=outcome.receipt)
+        # not_found / terminal_locked / amount_mismatch / illegal_transition / processing /
+        # confirmed / replay：直接暴露 store 原子方法判定（跨租户 → not_found 由路由层转 HTTP 404，
+        # 终态封闭 → terminal_locked 供调用方区分）。
+        return CallbackResult(applied=outcome.applied, reason=outcome.reason,
+                              execution_id=execution_id, status=outcome.status,
+                              receipt=outcome.receipt)
 
     # ------------------------------------------------------------------
     # 对账任务
@@ -433,6 +472,8 @@ class ExecutionEngine:
                 mis_matched += 1
             elif outcome == "human_handoff":
                 handoff += 1
+        # 对账最后运行时间（gauge，无标签；供「对账超时未运行」告警 time() - gauge > 86400 判定）。
+        _metrics().set("reconcile_last_run_timestamp_seconds", _now(), (), {})
         return ReconciliationResult(tenant_id=tenant_id, scanned=scanned, reconciled=reconciled,
                                     mis_matched=mis_matched, human_handoff=handoff,
                                     details=details)
@@ -468,6 +509,12 @@ class ExecutionEngine:
                                         result={"execution_status": ExecutionStatus.CONFIRMED.value,
                                                 "reconciled": True,
                                                 "message": "对账确认执行成功。"})
+            self.store.append_audit(
+                tenant_id, "execution", "execution.reconcile.confirmed", "execution",
+                record.execution_id,
+                {"operation_id": record.operation_id, "external_txn_id": record.external_txn_id,
+                 "reason": ("overdue_confirmed_by_reconcile" if overdue
+                            else "confirmed_by_reconcile")}, _now())
             return "confirmed", ("overdue_confirmed_by_reconcile" if overdue
                                  else "confirmed_by_reconcile")
         if ext_status in ("failed", "rejected"):
@@ -485,10 +532,19 @@ class ExecutionEngine:
 
     def _reconcile_mismatch(self, record: ExecutionRecord, reason: str) -> None:
         """对账冲突：标记 mismatch + operation 转人工，保留记录供人工对账。"""
+        # 对账不一致计数（有界 kind）+ 人工介入计数（kind=reconcile_mismatch）。
+        _metrics().counter("reconcile_mismatch_total", ("kind",),
+                              {"kind": _reconcile_kind(reason)})
+        _metrics().counter("human_intervention_total", ("kind",),
+                              {"kind": "reconcile_mismatch"})
         self._transition(record, ExecutionStatus.MISMATCHED, last_error=reason, confirmed_at=_now())
         self.store.update_operation(record.tenant_id, record.operation_id, OperationStatus.HUMAN_HANDOFF,
                                     result={"execution_status": ExecutionStatus.MISMATCHED.value,
                                             "message": "对账不一致，已转人工对账。", "reason": reason})
+        self.store.append_audit(
+            record.tenant_id, "execution", "execution.reconcile.mismatch", "execution",
+            record.execution_id,
+            {"operation_id": record.operation_id, "reason": reason, "kind": "human_handoff"}, _now())
 
     # ------------------------------------------------------------------
     # 内部工具
@@ -511,10 +567,28 @@ class ExecutionEngine:
             return float(order.total_amount)
         return None
 
-    def _transition(self, record: ExecutionRecord, next_status: ExecutionStatus, **fields) -> ExecutionRecord:
-        """按状态机合法跃迁；非法跃迁抛 DomainError（存疑 → 上层转人工）。"""
+    def _transition(self, record: ExecutionRecord, next_status: ExecutionStatus,
+                    expected_status: ExecutionStatus | None = None, **fields) -> ExecutionRecord:
+        """按状态机合法跃迁；非法跃迁抛 DomainError（存疑 → 上层转人工）。
+
+        `expected_status` 可选：当调用方对**并发推进**敏感（如 live 提交后等待回调）时显式传入，
+        透传给 store 的 `update_execution_record(expected_status=...)`，由 store 基于**实际当前状态**
+        做 CAS（`WHERE status=expected_status`）。CAS 落空（记录已被并发推进，如已被回调确认）→
+        返回**当前记录**（调用方据此幂等重放），不抛 DomainError——消除高并发下
+        "submitted -> submitted"之类向调用方抛非法跃迁的问题（red/yellow 点②）。
+        无 expected_status 时保留 `can_transition` 校验（状态机核心，防非法跃迁/终态开放）。
+        """
         if not can_transition(record.status, next_status):
-            raise DomainError(ErrorCode.EXECUTION_FAILED,
-                              f"执行状态跃迁非法: {record.status.value} -> {next_status.value}", 422)
-        return self.store.update_execution_record(record.tenant_id, record.execution_id,
-                                                  status=next_status, updated_at=_now(), **fields)
+            # 同状态/反向/终态重复跃迁一律拒绝（防绕过状态机）；除非是并发落空情形（见下）。
+            # 说明：多线程对同一终态记录重复跃迁会在此抛错，属设计意图（终态封闭）；
+            # 仅在显式传 expected_status 且记录已被并发推进时走 CAS 重放（绝不抛给用户）。
+            if expected_status is None:
+                raise DomainError(ErrorCode.EXECUTION_FAILED,
+                                  f"执行状态跃迁非法: {record.status.value} -> {next_status.value}", 422)
+        updated = self.store.update_execution_record(record.tenant_id, record.execution_id,
+                                                     status=next_status, updated_at=_now(),
+                                                     expected_status=expected_status, **fields)
+        if updated is None:
+            # CAS 落空：记录已被并发推进 → 读回当前状态按现状幂等收敛（不重复提交/不抛错）。
+            return self.store.get_execution_record(record.tenant_id, record.execution_id)
+        return updated

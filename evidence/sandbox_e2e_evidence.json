@@ -1,0 +1,53 @@
+{
+  "generated_by": "funds-engineer",
+  "scope": "资金沙箱端到端验证（提交/回调/超时/补偿/重放/人工对账）",
+  "based_on": "t1 实现的自部署网关沙箱（SandboxHttpFundsProvider + sandbox_gateway，SQLite 服务端持久化幂等）",
+  "test_file": "tests/test_sandbox_e2e_flow.py",
+  "result": "14 passed（真实 HTTP 沙箱链路，全程不触真实资金）",
+  "audit_actions_verifiable": ["session.create", "execution.create", "approval.decide", "execution.callback.confirmed", "execution.compensated", "execution.compensation_failed", "execution.reconcile.confirmed", "execution.reconcile.mismatch"],
+  "audit_note": "补偿(execution.compensated/compensation_failed)与对账(execution.reconcile.confirmed/mismatch)的 token 级 append_audit 已在 engine 方法体内惰性写入（无顶层 src import，行为增量、不改变状态机/幂等/回调），并经 store.search_audit 断言验证。",
+  "verifications": {
+    "1_refund_submit_callback_confirm": {
+      "step": "提交→沙箱成功→回调(HMAC验签)→submitted→confirmed",
+      "evidence": "execution 状态 SUBMITTED→CONFIRMED；沙箱 external_txn_id 回执 amount=299.0（订单实付）；回调确认审计 execution.callback.confirmed；同幂等键重复 submit 返回同一 external_txn_id",
+      "dup": false
+    },
+    "2_return_and_address_unique_approval": {
+      "step": "退货/改址：资格校验+唯一 human_approval+审批+执行+回调收敛",
+      "evidence": "退款/退货/改址均先返回 approval_required(pending)；审批通过才 executed；审批拒绝→operation=REJECTED 且无执行记录（无 direct 绕过）；退货/改址执行记录 amount=None",
+      "no_direct_bypass": true
+    },
+    "3_timeout_reconcile": {
+      "step": "提交后超过 confirm_timeout 未确认→对账→query 外部核实",
+      "evidence": "overdue(submitted_at<-40s, confirm_timeout=30s) 被 _is_overdue 识别；对账 query 沙箱 succeeded→CONFIRMED；外部 processing→MISMATCHED+operation=HUMAN_HANDOFF（fail-closed 转人工，不静默当成功）",
+      "no_duplicate": true
+    },
+    "4_failure_compensate": {
+      "step": "外部明确失败→FAILED_DISPATCHED→补偿→compensated；补偿失败→human_handoff；补偿重放一致",
+      "evidence": "submit=failed → execute 收敛 COMPENSATED + compensation_status=compensated；补偿失败→COMPENSATION_FAILED/HUMAN_HANDOFF；compensate 两次返回同一 reversal_id（(tenant,idempotency_key,execution_id) 派生稳定）；execution.compensation_status 与 operation.result.compensated=true 可回溯",
+      "replay_stable": true
+    },
+    "5_replay_terminal_locked_signature": {
+      "step": "同 nonce 重投→replay；终态后新 nonce→terminal_locked；坏签名→signature_invalid",
+      "evidence": "同 nonce 重投 apply_callback→applied=False reason=replay；终态后新 nonce→terminal_locked（防重复扣款退款）；坏签名→signature_invalid；执行记录仅 1 条（未重复执行）",
+      "no_dup_effect": true
+    },
+    "6_manual_reconcile_traceable": {
+      "step": "mismatch/human_handoff 转人工留痕，可回溯到租户/会话/工单/execution",
+      "evidence": "对账 query 失败→execution= MISMATCHED 且 last_error 记 query_failed:network；operation=HUMAN_HANDOFF 且 result.reason 含 mismatch 原因（可回溯到 execution/operation/tenant）",
+      "traceable": true
+    },
+    "7_sandbox_no_duplicate_execution": {
+      "step": "真实沙箱不重复执行（高并发/重复点击/审批重放）",
+      "evidence": "16 并发同键 submit → 全部返回同一 external_txn_id；GatewayStore 同一 (tenant,key) 只落一行(count_txns==1)，进程重启后仍单行；engine 幂等重放：同一 operation 二次 execute 返回同 execution_id、provider.submit 仅调用 1 次",
+      "no_duplicate": true
+    },
+    "8_audit_traceable": {
+      "step": "全程可追溯（append_audit）",
+      "evidence": "审计 action：session.create / execution.create / approval.decide / execution.callback.confirmed（回调确认在 store.apply_callback_atomic 同一事务用执行记录可信 tenant_id 写入）；补偿/对账通过 execution.compensation_status/last_error + operation.result 可回溯",
+      "traceable": true
+    }
+  },
+  "regression": "全套非 PG 测试 385 passed, 1 skipped(需 PG), 33 deselected(需 PG)；沙箱相关 32 项通过",
+  "conclusion": "真实沙箱链路未发生重复执行：同(tenant_id,idempotency_key)在服务端 SQLite 唯一约束下只落一行；回调重放只重放不重复生效；终态后任何新/异 nonce 被 terminal_locked 拒绝。回调、补偿、对账均可回溯（token 级审计 action execution.callback.confirmed / execution.compensated / execution.compensation_failed / execution.reconcile.confirmed / execution.reconcile.mismatch + execution 字段 + operation.result，均经 store.search_audit 断言）。审批链为唯一 human_approval，无 direct 绕过。"
+}

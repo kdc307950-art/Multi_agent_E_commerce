@@ -182,6 +182,27 @@ class CallbackResult:
 
 
 @dataclass(frozen=True)
+class CallbackAtomicOutcome:
+    """`store.apply_callback_atomic` 的原子回调结果（三后端一致，供 engine/routes 判断）。
+
+    reason 取值约定（与 CallbackResult.reason 对齐）：
+    - signature_invalid / bad_payload：由 engine 层负责（不触 DB，不在本结构出现）；
+    - not_found / replay / amount_mismatch / illegal_transition / processing /
+      confirmed / failed_dispatch / terminal_locked：由 store 原子方法判定并返回。
+    其中 terminal_locked 表示执行记录已是终态（confirmed/compensated/mismatched/...），
+    任何回调都不得覆盖；replay 表示与已记账 nonce 完全一致的重投（只重放不重复生效）。
+    """
+
+    applied: bool
+    reason: str
+    execution_id: Optional[str] = None
+    status: Optional[str] = None
+    receipt: Optional[dict] = None
+    # 本次记账/重放所涉及的 nonce（供非重放窗口记账审计；None 表示未记账，如 not_found/终态无 nonce）。
+    claimed_nonce: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class ReconciliationResult:
     """对账任务的汇总结果（供后台任务与测试断言）。"""
 

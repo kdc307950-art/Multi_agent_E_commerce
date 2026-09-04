@@ -40,6 +40,8 @@
 | `POSTGRES_PASSWORD` | PostgreSQL owner/迁移角色口令 | postgres 启动失败 |
 | `REDIS_PASSWORD` | Redis `requirepass` | redis 启动失败 |
 | `APP_RUNTIME_PASSWORD` | 运行角色 `app_runtime` 口令 | 无法迁移角色；api/worker 认证失败 |
+| `BACKUP_ROLE_PASSWORD` | 最小权限备份角色 `backup_role` 口令（仅 CONNECT/SELECT） | 无法建备份角色；加密备份失败 |
+| `BACKUP_ENC_KEY` | 备份对称加密密钥（aes-256-cbc+PBKDF2；`openssl rand -base64 32`） | 缺失 → `check_secrets` 拒绝；无法加密/解密归档 |
 | `AUTH_JWT_SECRET` | JWT HS256 密钥 | 受限环境 api 启动即 fail-closed |
 | `AUTH_JWT_ISSUER`/`AUTH_JWT_AUDIENCE` | JWT 固定声明 | 签发/校验必须一致，不匹配一律拒绝 |
 | `AUTH_JWT_TTL_SECONDS` | JWT 固定过期（秒） | 签发 `exp = iat + 该值`；缺省 3600 |
@@ -163,7 +165,7 @@ bash deploy/scripts/healthcheck.sh
 ## 6. 日常运维 / 观测
 
 - 查看日志：`docker compose --env-file deploy/.env.preview -f docker-compose.preview.yml logs -f api nginx`
-- 定期备份：`bash deploy/scripts/backup_db.sh`（RPO 路径；建议结合 crontab）。
+- **加密**定期备份：`BACKUP_ENC_KEY=<注入> bash deploy/scripts/backup_encrypted.sh`（最小权限 `backup_role` + aes-256-cbc + SHA-256 + 异机；见 `deploy/DR_KEY_MANAGEMENT.md`；RPO 路径建议结合 crontab）。
 - 模型/审批/审核：受限环境 fail-closed 只影响 `api`；`worker`（Celery）不触发 `create_app`，安全。
 - 严格完全自托管出口阻断（可选）：把 `internal` 网络设为 `internal: true`，并把自托管 LLM 网关
   挂到该网络；此时容器无法访问外网，符合"未经批准外联阻断"。
