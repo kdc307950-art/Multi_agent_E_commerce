@@ -1,0 +1,33 @@
+{
+  "submit_idempotent": {
+    "first_external_txn_id": "txn-5208bb17686543f3",
+    "second_external_txn_id": "txn-5208bb17686543f3",
+    "same_external_txn_id": true,
+    "server_rows_for_key": 1,
+    "single_row": true,
+    "status": "succeeded",
+    "idempotent_ok": true
+  },
+  "query": {
+    "external_txn_id": "txn-5208bb17686543f3",
+    "status": "succeeded",
+    "amount": 88.5,
+    "exists": true,
+    "not_found_for_unknown": true
+  },
+  "compensate_idempotent": {
+    "first_reversal_id": "rev-165acef0541d5dfd",
+    "second_reversal_id": "rev-165acef0541d5dfd",
+    "same_reversal_id": true,
+    "stable_reversal_ok": true
+  },
+  "cross_tenant": {
+    "tenant_A_rows": 1,
+    "tenant_B_rows": 1,
+    "tenant_B_external_txn_id": "txn-48997dd8f0d9438e",
+    "cross_tenant_no_overwrite": true
+  },
+  "conclusion": true,
+  "gateway": "http://127.0.0.1:8010 (self-hosted sandbox_gateway, SQLite persistent idempotency, X-API-Key=gw-key)",
+  "verified_at": "2026-09-04T20:22:12+0800"
+}

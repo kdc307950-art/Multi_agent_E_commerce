@@ -1,7 +1,8 @@
 # 验收结论（FINAL_ACCEPTANCE · release-manager · t6 · 定稿 · rc2）
 
 > **产出国角色**：release-manager（发布经理）· prod-go-live 团队 · 任务 t6
-> **版本状态**：**定稿**（基于 t1–t5 各角色回填的真实证据；逐条结论与整体结论已定稿）。**随 `release/v1.0.0-rc2` 一同提交。**
+> **版本状态**：**定稿**（基于 t1–t5 各角色回填的真实证据；逐条结论与整体结论已定稿）。**随 `release/v1.0.0-rc2`（→`59e37f2`）提交。**
+> **git 口径（t4 统一）**：当前 HEAD = `release/v1.0.0-rc2` = commit `59e37f2`（annotated tag `d2c9db1`）；工作区**非 clean**（存在未提交变更，t2 审计：11 M + 2 D + 43 ?? ≈ 56 文件级；A=必须提交/证据归档/临时清理；`.pytest-forensics-tmp/` 因权限无法枚举）。
 > **证据来源**：`evidence/prod-go-live/<role>/`；并交叉引用仓库既有 `[substrate]`（preview/沙箱级）作为能力基线。
 > **证据边界**：本文件所有判定均按四证据边界（边界1 单元测试 / 边界2 Mock·沙箱 / 边界3 PostgreSQL·RLS 实测 / 边界4 真实生产外部依赖）标注，绝不把"一次性库取证"误作"生产栈实机达标"，也不把"mock 引擎"误作"真实模型能力"。定义详见 §〇。
 > **诚实原则**：凡**真实租户书面确认 / 真实资金链路 / 受信 CA / 真实权重模型 / 7 天观察**未获提供，一律如实标注 `❌ BLOCKED-需外部`；凡**生产栈运行时 RLS / 告警端到端复验 / `git archive` clean-context 字节级重建 / mismatch 计数后台实测**未实际执行，一律标注 `部署期执行项`；**独立生产栈容器级带起健康已证实**（`PROD_STACK_HEALTH.md`，T7），绝不虚报、也不缩小。
@@ -82,6 +83,7 @@
 
 ### A10 真实模型评测 + 能力矩阵执行门控 —— ❌ BLOCKED（真实模型评测）＋能力矩阵/写门控 ✅ PASS
 - **判定**：① 真实模型评测 `❌ BLOCKED-需外部`：preview `LLM_BACKEND=mock`、`model-endpoint:8001` 无容器、host 探测 `127.0.0.1:8001/v1/models` 连接拒绝、`self-hosted-model`=MockLLM 规则引擎代表（非真实权重）；`evidence/llm_candidate_eval.json` 现仅 `self-hosted-demo` stub（write_op_pass=true,cases=1）。② 能力矩阵/写门控 `✅ PASS`：受限环境空白名单/缺报告→`frozenset()` fail-closed；`capability_ok(self-hosted-demo)=True`、`self-hosted-model=False`；非白名单拒写转人工；`test_llm_endpoint_gate.py` 21 passed。⚠️ 可写模型为 mock 引擎，不构成真实模型能力证明；`verify_capability_matrix_t2.py` 因报告缺 `self-hosted-model` 有 4 项 FAIL（报告完整性）。
+- **差异根因（诚实标注 · 阶段一只标注、不重生成）**：同 G5——`evidence/llm_candidate_eval.json` 的 `self-hosted-demo`/1‑用例 stub **非真实评测产物**，系 `tests/test_llm_endpoint_gate.py::test_whitelist_model_still_requires_approval` **覆写共享证据文件**所致（运行 pytest 即清空真评测报告）。权威目标口径 = 模型 `self-hosted-model` + **全量 24 用例**；真实重生成推迟到阶段三（需真实权重端点先起 + 先用 mock 对 `self-hosted-model` 产口径一致报告 + **先修该测试**，否则再跑 pytest 会再次清空）。当前只做诚实标注，**不宣称已验证**。
 - **证据**：`evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §1/§2 + `LLM_GATEWAY_EVIDENCE.json`。
 
 ### A11 7 天连续观察 —— ❌ 未闭环（待切 live 后）

@@ -237,8 +237,13 @@ services:
 
   # 每 15 分钟【加密】pg_dump -Fc（最小权限 backup_role）到持久 /backups，附 SHA-256，可选异机。
   # 独立备份目录 ./data/prod-backups（与 preview ./data/preview-backups 完全隔离）。
+  # 镜像：postgres:17-alpine 缺 openssl CLI，导致加密备份 0 字节 BACKUP_FAIL；故用基于同镜像补装
+  # openssl + rsync 的专用镜像（deploy/backup.Dockerfile）。见 OPS_RUNBOOK §5。
   backup:
-    image: docker.1ms.run/library/postgres:17-alpine
+    build:
+      context: .
+      dockerfile: deploy/backup.Dockerfile
+    image: after-sales-prod-backup
     command: ["sh", "/app/backup.sh"]
     environment:
       - BACKUP_DB_URL=postgresql://${BACKUP_ROLE_USER:-backup_role}:${BACKUP_ROLE_PASSWORD:?BACKUP_ROLE_PASSWORD 必须由密钥注入}@postgres:5432/${POSTGRES_DB:-after_sales_prod}

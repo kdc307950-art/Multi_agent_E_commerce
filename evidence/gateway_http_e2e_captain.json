@@ -1,0 +1,24 @@
+{
+  "submit_idempotent": {
+    "first_external_txn_id": "txn-af6ed935a0cc48b4",
+    "second_external_txn_id": "txn-af6ed935a0cc48b4",
+    "same": true
+  },
+  "query": {
+    "status": "succeeded",
+    "amount": 100.0
+  },
+  "compensate_stable_reversal": {
+    "first_reversal_id": "rev-28b18cca7b465366",
+    "second_reversal_id": "rev-28b18cca7b465366",
+    "same": true
+  },
+  "cross_tenant_no_collision": {
+    "A_external": "txn-af6ed935a0cc48b4",
+    "B_external": "txn-6c7493b55fcb4e28",
+    "different": true
+  },
+  "all_ok": true,
+  "timestamp": "2026-09-04T20:21:25+0800",
+  "gateway": "http://127.0.0.1:8010"
+}

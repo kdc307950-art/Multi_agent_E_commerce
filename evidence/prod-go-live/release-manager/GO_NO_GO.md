@@ -9,8 +9,8 @@
 > 一律标注为部署期执行项。
 > **定稿依据说明（git 实测，唯一事实来源）**：
 > **基线 commit 链**：`7941246`（已测功能）→ `ad168ef`/`8be2d97`/`03819a8`（可复现构建）→ `3268a1c`（clean-context 断言）→ `696444a`（migrations 复合外键修复）→ `8ddca48`（接受运行面+部署配置）→ `cd743d3`（`BUSINESS_DATA_BACKEND=postgres`）→ `cde30fb`（T1/T7 发布基线证据+迁移修复复验+生产栈健康）。
-> `release/v1.0.0-rc1` = `cd743d3`（annotated tag 对象 `2120c4b`，peel 到 commit `cd743d3`；`8ddca48` 为其**父提交**，非 tag 目标）。当前 HEAD = `cde30fb`。
-> **工作区 `git status --porcelain` 初始余 6 个未提交文件**（均为 release-manager 文档/证据，非运行面源码）：`evidence/e2e_flow.json`、`evidence/prod-go-live/release-manager/{FINAL_ACCEPTANCE,GO_NO_GO,ROLLBACK_PAUSE_TAKEOVER,SHADOW_TO_LIVE_GATE}.md`、`evidence/recovery.json`。**本次 rc2 一并校订并提交 `README.md`（生产候选口径）与 `IMAGE_DIGESTS.json`（rc2 口径）**，提交后 `git status` 干净。运行面源码与部署配置已全部入 `cd743d3`/`cde30fb`。
+> `release/v1.0.0-rc1` = `cd743d3`（annotated tag 对象 `2120c4b`，peel 到 commit `cd743d3`；`8ddca48` 为其**父提交**，非 tag 目标）。`release/v1.0.0-rc2` = **`59e37f2`**（annotated tag 对象 `d2c9db1`，peel 到 commit `59e37f2`）。当前 HEAD = **`59e37f2`（rc2 定稿 commit）**。
+> **工作区 `git status --porcelain` 非 clean**：存在未提交变更（t2 审计：11 M + 2 D + 43 ?? ≈ 56 文件级；A=必须提交 / B=证据归档 / C=临时清理；`.pytest-forensics-tmp/` 因权限无法枚举）。本次 rc2 校订项为 `README.md`（生产候选口径）与 `IMAGE_DIGESTS.json`（rc2 口径）；运行面源码与部署配置已入 `cd743d3`/`cde30fb`/`59e37f2`。**当前为发布文档收口态（待提交待清理），未达 "git status 干净"。**
 > 镜像 digest 为**工作树构建、非字节级可复现**（见 G2 边界标注）；后续 "rc2 commit + `git archive` clean-context 重建" 列为部署期执行项。
 
 - 记录 ID：`GONOGO-PROD-20260904`
@@ -65,10 +65,10 @@
 ## 二、逐项详表（定稿）
 
 ### G1 代码 tag（生产发布基线）—— ✅ 实测（基线忠实，rc1 精确=cd743d3）
-- **判定**：发布基线忠实。**已测功能基线**＝`7941246`（baseline-prod-1）。**可复现构建链**含 `ad168ef`/`8be2d97`/`03819a8`/`3268a1c`；迁移修复 `696444a`（`fix(migrations): shipping_events 复合外键修复`，全新 prod-like 库 clean migrate exit 0）已纳入；运行面源码+部署配置已入 `8ddca48`，`cd743d3` 补 `BUSINESS_DATA_BACKEND=postgres`，`cde30fb` 补发布基线/生产栈健康证据。**`release/v1.0.0-rc1`精确指向 `cd743d3`**（tag 对象 `2120c4b`），此后 HEAD 前进 1 个 commit 至 `cde30fb`（新增 DEPLOY_BASELINE/PROD_STACK_HEALTH/IMAGE_DIGESTS/BASELINE_COMMIT_SCOPE 4 份证据）。
-- **本次 rc2**：将提交余下 6 个 release-manager 文档/证据（提交后 `git status` 干净），并创建 `release/v1.0.0-rc2` 指向最终 commit（含全部发布证据）。
+- **判定**：发布基线忠实。**已测功能基线**＝`7941246`（baseline-prod-1）。**可复现构建链**含 `ad168ef`/`8be2d97`/`03819a8`/`3268a1c`；迁移修复 `696444a`（`fix(migrations): shipping_events 复合外键修复`，全新 prod-like 库 clean migrate exit 0）已纳入；运行面源码+部署配置已入 `8ddca48`，`cd743d3` 补 `BUSINESS_DATA_BACKEND=postgres`，`cde30fb` 补发布基线/生产栈健康证据。**`release/v1.0.0-rc1`精确指向 `cd743d3`**（tag 对象 `2120c4b`），此后 HEAD 前进至 `cde30fb`（新增 DEPLOY_BASELINE/PROD_STACK_HEALTH/IMAGE_DIGESTS/BASELINE_COMMIT_SCOPE 4 份证据），再前进至 **`59e37f2`（rc2 定稿，当前 HEAD）**。
+- **本次 rc2**：`release/v1.0.0-rc2` 指向 **`59e37f2`**（annotated tag `d2c9db1`，当前 HEAD）。**git 状态非 clean**：工作区仍有未提交变更（t2 审计：11 M + 2 D + 43 ?? ≈ 56 文件级；A=必须提交/证据归档/临时清理），非"提交后干净"。
 - **证据**：`evidence/prod-go-live/deploy-engineer/git-baseline.txt`、`DEPLOY_BASELINE.md`、`IMAGE_DIGESTS.json`（release_baseline）；本会话 `git rev-parse`/`git rev-list`/`git status --porcelain` 复核（提交后 0 条）。
-- **诚实边界**：`DEPLOY_BASELINE.md` §1.1 "HEAD=3268a1c" 为 t1 早期快照；§0/#1 与 §1.2 已 reconcil 到 `cd743d3`，以 `cd743d3`/`cde30fb` 为准。**rc1 本身不含 `cde30fb` 的 4 份发布证据**——正式发布 tag 应为本次创建的 `release/v1.0.0-rc2`。
+- **诚实边界**：`DEPLOY_BASELINE.md` §1.1 "HEAD=3268a1c" 为 t1 早期快照；以 `cd743d3`/`cde30fb`/`59e37f2` 为准。**rc1 本身不含 `cde30fb` 的 4 份发布证据**——正式发布 tag 为 `release/v1.0.0-rc2`（→`59e37f2`，git 实测）。
 
 ### G2 镜像 digest—— ⚠️ 部分（内容/配置确定性 ✅；字节级冷构建【未复现 = 部署期执行项】）
 - **判定**：镜像 digest 已记录且**内容/配置确定性达成**；deploy 管线（base 钉 digest + 依赖 `==`/lock + `git archive` 固定 mtime + `SOURCE_DATE_EPOCH` + `--pull` 层缓存）设计上**可复现**。**⚠️ 字节级冷构建一致性未在本会话实证**：① Docker engine 对当前非提升 token 拒连（`npipe:////./pipe/dockerDesktopLinuxEngine` `permission denied`），**无法真实重跑 `git archive` clean-context 构建**；② 既有 BuildKit（本环境 buildx）亦存在"同上下文两次 `--no-cache` 冷构建 digest 不同"非确定限制（`--reproducible` 在本 buildx 不可用）。因此 **字节级冷构建列为部署期执行项/BLOCKED-需 Docker engine 可连接**，属"字节级复现残余风险"，非内容/逻辑阻断。
@@ -89,8 +89,9 @@
 
 ### G5 真实模型评测 + 能力矩阵—— ❌ BLOCKED（真实模型评测）＋能力矩阵/写门控 ✅ PASS
 - **判定**：① **真实模型评测＝`❌ BLOCKED-需外部（真实权重端点）`**：preview 运行时 `LLM_BACKEND=mock`、`LLM_BASE_URL=http://model-endpoint:8001/v1` 无对应容器、host 探测 `127.0.0.1:8001/v1/models` → `WinError 10061（连接被拒绝）`、`self-hosted-model` 为 `MockLLM` 规则引擎代表（非真实权重）；`evidence/llm_candidate_eval.json` 现仅 `self-hosted-demo` stub（write_op_pass=true，cases=1），先前全量 24 用例报告**不在磁盘**。② **能力矩阵/写门控＝`✅ PASS`**：受限环境空白名单/缺报告 → `frozenset()` fail-closed；`capability_ok(self-hosted-demo)=True`、`self-hosted-model=False`；非白名单拒写转人工；`tests/test_llm_endpoint_gate.py` 21 passed。⚠️ 但可写模型跑在 **mock 引擎**，**不构成真实模型能力证明**；`verify_capability_matrix_t2.py` 因报告缺 `self-hosted-model` 有 4 项 FAIL（报告完整性，非逻辑缺陷）。
+- **差异根因（诚实标注 · 阶段一只标注、不重生成）**：`evidence/llm_candidate_eval.json` 的 `self-hosted-demo`/1‑用例 stub **并非真实评测产物**，而是被测试 `tests/test_llm_endpoint_gate.py::test_whitelist_model_still_requires_approval` **覆写共享证据文件**所致（该测试为自测"白名单→仍进审批"直接 `json.dump` 写入真实报告路径 `evidence/llm_candidate_eval.json`；运行 pytest 即清空真评测报告）。**权威目标口径** = 模型 `self-hosted-model` + 全量 24 用例（`src/config.py` 默认、`.env.*.example`、端点 `self_hosted_server.py`、`evaluate_models.py` 均默认 `self-hosted-model`；`src/llm/eval/cases.py` ALL_CASES 合计 = 8+4+2+1+2+2+5 = 24）。**真实重生成推迟到阶段三**：需① 真实权重端点先起 + ② 先用 mock 对 `self-hosted-model` 产口径一致的报告 + ③ **必须先修上述覆写证据的测试**（否则再跑 pytest 会再次清空）；三道都满足后才可宣称"已用真实权重模型评测"。当前（阶段一）只做诚实标注，**不宣称已验证**。
 - **证据**：`evidence/prod-go-live/acceptance-engineer/LLM_GATEWAY_ACCEPTANCE.md` §1/§2 + `LLM_GATEWAY_EVIDENCE.json`；`evidence/llm_candidate_eval.json`（stub）。
-- **解锁条件**：部署真实自托管权重端点（vLLM/Ollama 或自管 OpenAI 兼容服务）→ 配置 `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` + 写入 `LLM_ALLOWED_HOSTS` → `LLM_BACKEND=openai_compatible` → 跑 `scripts/evaluate_models.py`（`--base-url` 显式传真实端口）产出 `write_op_pass=true` 报告 → `HIGH_CONFIDENCE_MODELS` 显式列出该 id。
+- **解锁条件**：①（先）修复 `tests/test_llm_endpoint_gate.py::test_whitelist_model_still_requires_approval`——改写临时/受控报告路径或测试后恢复原文件，避免 pytest 覆写权威证据；② 部署真实自托管权重端点（vLLM/Ollama 或自管 OpenAI 兼容服务）→ 配置 `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` + 写入 `LLM_ALLOWED_HOSTS` → `LLM_BACKEND=openai_compatible` → 跑 `scripts/evaluate_models.py --base-url <真实端口> --model-name self-hosted-model` 产出全量 24 用例 `write_op_pass=true` 报告 → `HIGH_CONFIDENCE_MODELS` 显式列出 `self-hosted-model`。
 
 ### G6 真实网关沙箱验收—— ⚠️ 部分（代码/测试 PASS；生产网关沙箱＝部署期执行项）
 - **判定**：网关沙箱链路**代码/测试级 ✅ PASS**（服务端 SQLite 幂等 `UNIQUE(tenant_id,idempotency_key)`+`ON CONFLICT`、回调验签、compensate 稳定 reversal_id、reconcile→`MISMATCHED`→`HUMAN_HANDOFF`、`gateway_unconfigured` fail-closed、N=256 单次提交、`tests/test_sandbox_e2e_flow.py` 14 passed）；**但"生产网关沙箱可用"＝部署期执行项/未部署**（preview `EXECUTION_PROVIDER=mock`、无 `GATEWAY_BASE_URL`、无生产网关容器）。
@@ -163,7 +164,7 @@
 ### 有条件 GO 的触发条件（全部满足后转 GO，并按此复核）
 1. **G10 受信 TLS**：生产域名 + 受信 CA 证书链替换自签，`nginx -t` + 端到端 HTTPS 复验。
 2. **G13 真实租户书面确认**：真实租户（业务方）签署确认函，`AUTH_LOGIN_CREDENTIALS`（argon2id）+ `LAUNCH_ALLOWED_TENANTS` 注入 + 成员/角色授予 + 审计。
-3. **G5 真实权重模型**：部署真实自托管端点 → 评测 `write_op_pass=true` → `HIGH_CONFIDENCE_MODELS` 显式列出。
+3. **G5 真实权重模型**：先修覆写证据的测试 → 部署真实自托管端点 → 对 `self-hosted-model` 评测产出全量 24 用例 `write_op_pass=true` → `HIGH_CONFIDENCE_MODELS` 显式列出该 id。
 4. **G6 真实资金链路**：部署生产网关沙箱（或真实资金渠道联测），`EXECUTION_PROVIDER=live/sandbox_http` + fail-closed。
 5. **G14 7 天观察**：切 live 后连续 7 天观测达标。
 6. **G2/G8/G9 部署期复验（切 live 前必办）**：`git archive release/v1.0.0-rc2` clean-context 字节级重建并刷新 digest（需 Docker engine 可连接）；`METRICS_ALLOWED_SOURCES` 网段修正；alert-rules 权威文件对齐；当前构建重建对账/指标；生产栈运行时 RLS/告警端到端复验；注入 Langfuse 密钥验证 trace 落地。

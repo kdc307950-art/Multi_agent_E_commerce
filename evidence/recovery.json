@@ -1,6 +1,6 @@
 {
   "rpo_seconds": 0.0,
-  "rto_restore_seconds": 0.002033800003118813,
+  "rto_restore_seconds": 0.0020514000207185745,
   "backup_bytes": 90112,
   "scenario": "sqlite online backup API"
 }

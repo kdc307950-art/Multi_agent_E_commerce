@@ -4,18 +4,37 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
-# 告警规则：由 report-compiler (t4) 生成的模板骨架。组件存活类(up)可直接生效；
-# 错误率/审批失败率/对账/人工介入/RPO-RTO 5 类因缺对应 Prometheus 指标(含 status 标签)
-# 表达式当前为空不会误报，待指标增强(见 alert-rules-README.md 缺口清单)。
+# 告警规则：**单一权威文件** deploy/observability/alert-rules.yml（t7 最终交付），由
+# docker-compose.observability.yml 的 prometheus 服务挂载为 /etc/prometheus/alert-rules.yml，并经本
+# 文件 rule_files 引用——两者共同保证 Prometheus 实际加载的规则 == 仓库内 catalog。
+# 组件存活类(up)可立即生效；其余依赖有界计数器的规则（错误率/审批失败率/对账/人工介入/RPO-RTO/安全拒绝）
+# 指标已在代码接入，仅个别待接入指标(component_restart_total)标注"未接入"，不会误报。
+# 口径纪律见 alert-rules-README.md（单一来源：deploy/observability/alert-rules.yml）。
 rule_files:
   - /etc/prometheus/alert-rules.yml
 
+# 告警通知：把规则触发的告警推送到同一 obs 内网的 Alertmanager（自托管），由其路由/通知。
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
-  # 应用 API：从 /api/metrics 拉取（同源反向代理下的私有内网，经 app-net 网络可达 api:8000）。
+  # ---- 应用 API（预览栈，经 app-net=after-sales-preview_internal 可达）----
+  # 目标用容器名 after-sales-preview-api-1 而非服务名 "api"：因 Prometheus 同时挂在 preview 与 prod
+  # 两个 external 网络，两网络各自存在名为 "api" 的服务；用容器名可去重，避免 DNS 歧义把两个 API 混为一 job。
   - job_name: api
     metrics_path: /api/metrics
     static_configs:
-      - targets: ["api:8000"]
+      - targets: ["after-sales-preview-api-1:8000"]
+
+  # ---- 应用 API（生产栈，经 prod-net=after-sales-prod_internal(172.31.0.0/16) 可达）----
+  # 生产 API 的 METRICS_ALLOWED_SOURCES=172.31.0.0/16 与 prod internal 子网一致；Prometheus 从该网段
+  # 拉取时源 IP 命中白名单（METRICS_EXPOSE_INTERNAL_ONLY=true），闭环。目标用容器名去重（同 "api" 歧义）。
+  - job_name: api_prod
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["after-sales-prod-api-1:8000"]
 
   # 观测自身
   - job_name: prometheus

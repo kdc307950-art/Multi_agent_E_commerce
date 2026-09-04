@@ -1,0 +1,34 @@
+# Alertmanager 配置（完全自托管 · 受控通知通道）
+# ============================================================================
+# 定位：Prometheus 经 alerting 段把触发告警推送到本 Alertmanager；本配置实现【路由 + 接收者】，
+# 把告警经 webhook 通知到**自托管接收端**（same-stack 的 alert-webhook-sink，obs 网络内，见
+# docker-compose.observability.yml），绝不接第三方托管 SaaS（宪法 1.8 / 1.7）。
+# 接收端可扩展邮件/IM——但须为自托管受控通道；当前启用自托管 webhook 留痕接收端。
+#
+# 来源：与 alert-rules.yml（deploy/observability/alert-rules.yml）配合，closing the loop。
+# ============================================================================
+
+global:
+  resolve_timeout: 5m
+
+route:
+  # 分组维度：聚合同类告警，避免风暴。
+  group_by: ['alertname', 'severity', 'env']
+  group_wait: 30s       # 组内首条告警等待窗口（合并到组）
+  group_interval: 5m    # 组内已有告警的新通知间隔
+  repeat_interval: 4h   # 未恢复告警的重发间隔
+  receiver: alert-webhook
+  routes:
+    # 关键/合规类告警：更紧的重发窗口（演示按 severity 路由）；接收端仍为自托管 webhook。
+    - matchers: [severity="critical"]
+      receiver: alert-webhook
+      repeat_interval: 2h
+      continue: false
+
+receivers:
+  # 受控 webhook 通道 → 自托管 alert-webhook-sink（obs 网络内达）。
+  - name: alert-webhook
+    webhook_configs:
+      - url: 'http://alert-webhook-sink:8080/webhook'
+        send_resolved: true
+        max_alerts: 0

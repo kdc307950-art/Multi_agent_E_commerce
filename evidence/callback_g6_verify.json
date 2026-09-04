@@ -1,0 +1,50 @@
+{
+  "backend": "sqlite",
+  "callback_secret_configured": true,
+  "verified_at": "2026-09-04T20:22:23+0800",
+  "signature_invalid": {
+    "reason": "signature_invalid",
+    "applied": false,
+    "ok": true
+  },
+  "same_nonce_replay": {
+    "first": {
+      "reason": "confirmed",
+      "applied": true,
+      "status": "confirmed"
+    },
+    "replay": {
+      "reason": "replay",
+      "applied": false,
+      "status": "confirmed"
+    },
+    "ok": true
+  },
+  "final_status_after_replay": "confirmed",
+  "terminal_locked_after_terminal": {
+    "reason": "terminal_locked",
+    "applied": false,
+    "ok": true
+  },
+  "amount_mismatch_human_handoff": {
+    "reason": "amount_mismatch",
+    "applied": false,
+    "exec_status": "mismatched",
+    "operation_status": "human_handoff",
+    "ok": true
+  },
+  "unknown_status": {
+    "reason": "processing",
+    "applied": false,
+    "exec_status": "submitted",
+    "operation_status": "pending",
+    "note": "未知状态被归一化为中间态（保持 submitted、仅记账 nonce，等待最终回调）；金额不匹配才触发 human_handoff。"
+  },
+  "cross_tenant_forgery": {
+    "reason": "not_found",
+    "applied": false,
+    "record_status": "submitted",
+    "ok": true
+  },
+  "conclusion": true
+}

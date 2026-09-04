@@ -137,12 +137,47 @@ services:
       - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/observability/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - ./data/prometheus:/prometheus
-    networks: [obs, app-net]        # app-net 用于抓取 api:8000/api/metrics
+    networks: [obs, app-net, prod-net]   # app-net 抓取 preview api；prod-net 抓取 prod api(/api/metrics)
     healthcheck:
       test: ["CMD", "wget", "-qO-", "-T", "3", "http://localhost:9090/-/healthy"]
       interval: 15s
       timeout: 5s
       retries: 10
+
+  # ---- Alertmanager（告警路由/通知；完全自托管，obs 内网，不发布宿主端口）----
+  # 接收 prometheus alerting 段的推送，按 alertmanager.yml 路由/分组并通过 webhook 通知到自托管接收端。
+  alertmanager:
+    image: prom/alertmanager:v0.27.0    # 镜像源 docker.1ms.run 未收录 alertmanager，故用 docker.io（本地自托管运行）
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
+    volumes:
+      - ./deploy/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./data/alertmanager:/alertmanager
+    networks: [obs]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "-T", "3", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---- Alertmanager webhook 接收端（自托管 sink：捕获告警到 JSONL 并回 200；obs 内网可达）----
+  # 接收脚本在 deploy/observability/evidence/mock_webhook_receiver.py（t4/t11 共用，仅标准库）。
+  alert-webhook-sink:
+    image: python:3.12-alpine            # 镜像源 docker.1ms.run 该 layer 不可用，故用 docker.io（本地自托管运行）
+    command: ["python", "/app/mock_webhook_receiver.py"]
+    environment:
+      - SINK_OUT=/data/inbox.jsonl
+      - SINK_PORT=8080
+    volumes:
+      - ./deploy/observability/evidence/mock_webhook_receiver.py:/app/mock_webhook_receiver.py:ro
+      - ./data/alertmanager-webhooks:/data
+    networks: [obs]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
   # ---- Grafana（展示；看板/告警由项目方维护）----
   grafana:
@@ -194,7 +229,12 @@ networks:
   obs:
     driver: bridge
     internal: true
-  # 复用预览栈内网（抓取 api:8000、跟随应用容器日志），需先启动 preview 栈。
+  # 复用预览栈内网（抓取 preview api:8000、跟随应用容器日志），需先启动 preview 栈。
   app-net:
     external: true
     name: after-sales-preview_internal
+  # 复用生产栈内网（抓取 prod api /api/metrics，172.31.0.0/16），需先启动 prod 栈。
+  # 与生产 METRICS_ALLOWED_SOURCES=172.31.0.0/16 闭环。
+  prod-net:
+    external: true
+    name: after-sales-prod_internal

@@ -47,7 +47,9 @@ _probe_py/
 _acceptance_tmp/
 .pytest-tmp/
 .pytest-tmp-sqlite-diag/
+.pytest-forensics-tmp/
 graphflow-out/
+_verify_tmp/
 
 # 备份与转储（二进制/可再生成，不入库）
 deploy/backups/

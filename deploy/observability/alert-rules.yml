@@ -23,6 +23,11 @@
 #   - Prometheus 自动生成：up{job=...}
 # 说明：组件存活(up)与登录暴力破解规则可立即生效；其余规则所依赖的有界指标**已在代码中接入**，
 #       表达式不再为空；个别依赖尚未实现的指标（如下方 component_restart_total）仍标注"未接入"，不会误报。
+# 双 job 口径提示（t3 起 Prometheus 同时抓取 preview(job="api") 与 prod(job="api_prod")）：
+#       api_requests_total / approval_decisions_total / human_intervention_total 等计数会同时出现在两 job。
+#       下方 ApiHighErrorRate 已按 job+route+method 分维，避免 preview+prod 混算/稀释误报；
+#       其余以 api_requests_total 为分母的规则（如 HighHumanInterventionRate）与 approval_decisions_total
+#       相关规则暂未按 job 拆，t11 告警演练时按需复核（保持单一权威文件，谨慎改动）。
 # ============================================================================
 
 groups:
@@ -84,9 +89,10 @@ groups:
     rules:
       - alert: ApiHighErrorRate
         # api_requests_total 已增加 status 标签（由 HTTP 中间件统一记录）。
+        # 按 job+route+method 分维：preview(job=api) 与 prod(job=api_prod) 各自独立计算，避免两者混算稀释/误报。
         expr: |
-          sum(rate(api_requests_total{status=~"5.."}[5m])) by (route, method)
-            / clamp_min(sum(rate(api_requests_total[5m])) by (route, method), 0.001) > 0.05
+          sum(rate(api_requests_total{status=~"5.."}[5m])) by (job, route, method)
+            / clamp_min(sum(rate(api_requests_total[5m])) by (job, route, method), 0.001) > 0.05
         for: 5m
         labels: {severity: critical, component: api, status: "5xx", env: preview}
         annotations:

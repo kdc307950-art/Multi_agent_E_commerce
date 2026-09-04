@@ -1,0 +1,27 @@
+{
+  "_template_note": "《tenants.json》真实租户白名单示例（可填模板）。本文件为【示例】，用于向业务方/用户确认真实租户与成员角色；替换其中 tenant_id / name / members 后，用 `python scripts/create_bootstrapped_tenants.py --spec <此文件> --dry-run` 校验，确认后由 release-manager 以受控方式执行创建（preview/production 禁用 seed_default）。角色仅限 customer/agent/admin/approver；禁止演示租户 TENANT-A/TENANT-B 与演示成员 USER-001/AGENT-A/... 等（脚本会 fail-closed 拒绝）。【示例成员与租户**非真实**，切勿以本示例直接写入生产。】",
+  "tenants": [
+    {
+      "tenant_id": "ACME-RETAIL",
+      "name": "示例租户：ACME 零售（示例，待业务方确认替换）",
+      "_note": "替换为真实租户 id 与名称；tenant_id 不得含空格/冒号/等号。",
+      "members": [
+        {"user_id": "acme-admin-1", "role": "admin"},
+        {"user_id": "acme-approver-1", "role": "approver"},
+        {"user_id": "acme-agent-1", "role": "agent"},
+        {"user_id": "acme-customer-1", "role": "customer"}
+      ]
+    },
+    {
+      "tenant_id": "GLOBEX-ECOM",
+      "name": "示例租户：Globex 电商（示例，待业务方确认替换）",
+      "_note": "示例：展示最小成员集（admin + approver + agent + customer）。真实清单可按需调整。",
+      "members": [
+        {"user_id": "globex-admin-1", "role": "admin"},
+        {"user_id": "globex-approver-1", "role": "approver"},
+        {"user_id": "globex-agent-1", "role": "agent"},
+        {"user_id": "globex-customer-1", "role": "customer"}
+      ]
+    }
+  ]
+}

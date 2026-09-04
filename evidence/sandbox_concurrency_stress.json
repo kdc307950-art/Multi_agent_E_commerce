@@ -1,13 +1,13 @@
 {
   "backend": "sqlite",
   "concurrency": 256,
-  "timestamp": "2026-09-04T13:59:08+0800",
+  "timestamp": "2026-09-04T20:20:14+0800",
   "gateway": "real sandbox_gateway (HTTP)",
   "results": [
     {
       "scenario": "I1_real_sandbox_same_op_concurrent",
       "concurrency": 256,
-      "elapsed_seconds": 0.3259,
+      "elapsed_seconds": 0.3064,
       "provider_submit_calls": 1,
       "distinct_external_txn_id": 1,
       "execution_records_for_op": 1,

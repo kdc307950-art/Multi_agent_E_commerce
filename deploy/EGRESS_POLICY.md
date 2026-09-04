@@ -15,7 +15,9 @@
 | `edge` | bridge | 否 | 仅 `nginx` | 宿主经 80/443 进出公网的**唯一通道** |
 | `internal`（preview）/ 默认网络（本地 dev） | bridge | 否* | `postgres`、`redis`、`migrate`、`api`、`worker`、`frontend`、`backup` | 数据面 + 应用面私网，**不发布任何宿主端口** |
 | `obs`（observability） | bridge | 是 | `clickhouse`、`minio`、`langfuse`、`langfuse-postgres`、`langfuse-redis`、`prometheus`、`grafana`、`loki`、`promtail` | 自托管可观测自网 |
-| `app-net`（observability，外部网络） | external | 否 | `prometheus`、`promtail` | 复用 `after-sales-preview_internal`，用于抓取 `api:8000` |
+| `app-net`（observability，外部网络） | external | 否 | `prometheus`、`promtail` | 复用 `after-sales-preview_internal`，用于抓取 preview `api:8000` |
+| `internal`（prod） | bridge | 否* | `postgres`、`redis`、`migrate`、`api`、`worker`、`frontend`、`backup` | 生产数据面 + 应用面私网（`after-sales-prod_internal`，172.31.0.0/16），**不发布任何宿主端口** |
+| `prod-net`（observability，外部网络） | external | 否 | `prometheus` | 复用 `after-sales-prod_internal`，用于抓取生产 `api:8000`（`/api/metrics`，来源命中 `METRICS_ALLOWED_SOURCES=172.31.0.0/16`） |
 
 \* 说明：`internal: true` 在 Docker Desktop（desktop-linux/WSL2）下会破坏 Docker 内嵌 DNS 的容器名解析，
 导致数据面栈起不来（已实测记录），故 `internal` 网络回退为普通 bridge。**出网硬阻断的等价落地**由下面
@@ -58,13 +60,18 @@
 ## 4. Prometheus 指标抓取路径与来源限制
 
 - **抓取路径**：自托管 Prometheus **不经过公网 nginx**，而是经 `app-net`（外部网络，复用
-  `after-sales-preview_internal`）**直连 `api:8000/api/metrics`**（见 `docker-compose.observability.yml`）。
-- **公网阻断**：`deploy/nginx/preview.conf` 在 443 server 增加精确匹配
+  `after-sales-preview_internal`）与 `prod-net`（外部网络，复用 `after-sales-prod_internal`）
+  **直连两栈的 `api:8000/api/metrics`**（见 `docker-compose.observability.yml`）。两栈各自存在名为 `api`
+  的服务，为避免 DNS 歧义，`docker-compose.observability.yml` 用**容器名**把预览/生产 API 分开：
+  - `job_name: api` → `after-sales-preview-api-1:8000`（preview，经 `app-net`）；
+  - `job_name: api_prod` → `after-sales-prod-api-1:8000`（prod，经 `prod-net`）。
+- **公网阻断**：`deploy/nginx/preview.conf`（及生产 `prod.conf`）在 443 server 增加精确匹配
   `location = /api/metrics { return 404; }`——公网经 nginx 访问 `/api/metrics` 一律 404，不转发到 `api:8000`。
 - **应用层来源白名单（最终兜底）**：`/api/metrics` 只允许来源 IP 命中 `METRICS_ALLOWED_SOURCES`
   （IP/CIDR 列表）才返回指标，否则 `403`。
   - 受限环境（preview/production）恒为“仅内网”：`METRICS_EXPOSE_INTERNAL_ONLY=true`，
-    且 `METRICS_ALLOWED_SOURCES` 默认 `172.30.0.0/16`（与 `networks.internal.ipam.subnet` 对齐）。
+    且 `METRICS_ALLOWED_SOURCES` 与对应 `networks.internal.ipam.subnet` 对齐（preview 默认 `172.30.0.0/16`、
+    **prod 为 `172.31.0.0/16`**——见 `docker-compose.prod.yml`，与 `after-sales-prod_internal` 实际子网一致）。
   - 来源 IP 判定复用 `LOGIN_TRUSTED_PROXY_DEPTH` 的**可信代理深度**：从 `X-Forwarded-For` 取最后一个
     可信值（可信 nginx 之后）；无代理（直接内网连接，如 Prometheus 直连）时取直连 peer。
     **可信边界**：仅当 nginx 为唯一可信反向代理时该头才可信；若服务被直接挂到公网，
