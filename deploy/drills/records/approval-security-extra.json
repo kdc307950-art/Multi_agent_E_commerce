@@ -1,0 +1,29 @@
+{
+  "scenario": "approval_security_extra",
+  "results": {
+    "repeated_decision": {
+      "result": "PASS",
+      "detail": {
+        "approval_id": "71b024a8-6cde-433b-9de2-6369d809c227",
+        "operation_id": "f266f15b-2bfd-446e-a786-228215a003e0",
+        "pre_decision_status": "pending",
+        "first_decision_status": "executed",
+        "first_decision_operation_id": "f266f15b-2bfd-446e-a786-228215a003e0",
+        "second_decision_status": "executed",
+        "second_decision_operation_id": "f266f15b-2bfd-446e-a786-228215a003e0",
+        "post_status": "executed",
+        "approve_round_trip_s": 0.204,
+        "converged_single_operation": true
+      }
+    },
+    "cross_tenant_404": {
+      "result": "PASS",
+      "detail": {
+        "cross_tenant_get_status": 404,
+        "cross_tenant_decision_status": 404
+      }
+    }
+  },
+  "timestamp": "2026-09-03T19:15:01.024437+00:00",
+  "preview_base": "https://127.0.0.1"
+}

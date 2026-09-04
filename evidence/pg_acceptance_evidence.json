@@ -1,0 +1,67 @@
+{
+  "timestamp": "2026-09-04T02:15:56+0800",
+  "pg_server": "127.0.0.1:55432/langgraph",
+  "runtime_role": "app_runtime",
+  "runtime_role_flags": "LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS",
+  "results": [
+    {
+      "name": "schema_reset",
+      "ok": true
+    },
+    {
+      "name": "cross_tenant_read_store",
+      "ok": true,
+      "detail": "cross_tenant_read_operation: 拒绝 code=not_found msg=操作不存在; cross_tenant_read_session: 拒绝 code=not_found msg=会话不存在"
+    },
+    {
+      "name": "cross_tenant_read_rls",
+      "ok": true,
+      "detail": "tenantA visible=1, tenantB zero_visible=0"
+    },
+    {
+      "name": "cross_tenant_write_rls",
+      "ok": true,
+      "detail": "WRITE cross-tenant blocked"
+    },
+    {
+      "name": "rls_zero_visible_without_tenant",
+      "ok": true,
+      "detail": "no tenant context visible=0"
+    },
+    {
+      "name": "suspended_tenant_rejected",
+      "ok": true,
+      "detail": "suspended_tenant_reject: 拒绝 code=tenant_suspended msg=租户已停用"
+    },
+    {
+      "name": "cross_tenant_approval_rejected",
+      "ok": true,
+      "detail": "cross_tenant_approval_read: 拒绝 code=not_found msg=审批单不存在; cross_tenant_approval_decision: 拒绝 code=not_found msg=审批单不存在"
+    },
+    {
+      "name": "tenant_idempotency",
+      "ok": true,
+      "detail": "same idempotency_key -> same operation_id=84375850-c940-4971-a8e6-db03df0b9c2d"
+    },
+    {
+      "name": "duplicate_callback_replay_safe",
+      "ok": true,
+      "detail": "first claimed=True, replay=True, re-replay=True, status=confirmed, committed_nonce=nonce-dup"
+    },
+    {
+      "name": "api_restart_recovery",
+      "ok": true,
+      "detail": "rebuild store -> session/operation/approval survive"
+    },
+    {
+      "name": "worker_redis_reconnect",
+      "ok": true,
+      "detail": {
+        "available": true,
+        "ping": true,
+        "reconnect_get": "v1"
+      }
+    }
+  ],
+  "conclusion": true
+}

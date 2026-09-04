@@ -1,0 +1,1281 @@
+{
+  "public_tables_rls": [
+    {
+      "relname": "agent_events",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "agent_runs",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "agent_schema_version",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "agent_thread_activity",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "approvals",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "audit",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "checkpoint_blobs",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "checkpoint_migrations",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "checkpoint_thread_scopes",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "checkpoint_writes",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "checkpoints",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "executions",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "inbound_events",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "it_assets",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "knowledge_chunks",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "knowledge_documents",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "memberships",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "operations",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "outbox_events",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "routing_rules",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "satisfaction_surveys",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "sessions",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "sla_policies",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "store",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "store_migrations",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "stream_events",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "streams",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "support_members",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "support_schedules",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "support_teams",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "tenant_it_policies",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "tenants",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "ticket_assignments",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "ticket_messages",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "ticket_sla",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "ticket_status_events",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "ticket_workflow_runs",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "relname": "tickets",
+      "rls_enabled": false,
+      "rls_forced": false
+    }
+  ],
+  "rls_enabled_tables": [
+    {
+      "relname": "approvals",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "audit",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "checkpoint_blobs",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "checkpoint_thread_scopes",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "checkpoint_writes",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "checkpoints",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "executions",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "memberships",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "operations",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "sessions",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "stream_events",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "streams",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "relname": "tenants",
+      "rls_enabled": false,
+      "rls_forced": false
+    }
+  ],
+  "policies": [
+    {
+      "tablename": "approvals",
+      "policyname": "approvals_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    },
+    {
+      "tablename": "audit",
+      "policyname": "audit_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    },
+    {
+      "tablename": "checkpoint_blobs",
+      "policyname": "checkpoint_blobs_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "checkpoint_thread_in_current_tenant(thread_id)",
+      "with_check": "checkpoint_thread_in_current_tenant(thread_id)"
+    },
+    {
+      "tablename": "checkpoint_thread_scopes",
+      "policyname": "checkpoint_thread_scopes_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    },
+    {
+      "tablename": "checkpoint_writes",
+      "policyname": "checkpoint_writes_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "checkpoint_thread_in_current_tenant(thread_id)",
+      "with_check": "checkpoint_thread_in_current_tenant(thread_id)"
+    },
+    {
+      "tablename": "checkpoints",
+      "policyname": "checkpoints_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "checkpoint_thread_in_current_tenant(thread_id)",
+      "with_check": "checkpoint_thread_in_current_tenant(thread_id)"
+    },
+    {
+      "tablename": "executions",
+      "policyname": "executions_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    },
+    {
+      "tablename": "memberships",
+      "policyname": "memberships_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    },
+    {
+      "tablename": "operations",
+      "policyname": "operations_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    },
+    {
+      "tablename": "sessions",
+      "policyname": "sessions_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    },
+    {
+      "tablename": "stream_events",
+      "policyname": "stream_events_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    },
+    {
+      "tablename": "streams",
+      "policyname": "streams_tenant_scope",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = app_current_tenant_id())",
+      "with_check": "(tenant_id = app_current_tenant_id())"
+    }
+  ],
+  "roles": [
+    {
+      "rolname": "app_runtime",
+      "rolsuper": false,
+      "rolbypassrls": false,
+      "rolinherit": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": true
+    },
+    {
+      "rolname": "migrator",
+      "rolsuper": true,
+      "rolbypassrls": false,
+      "rolinherit": true,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": true
+    }
+  ],
+  "app_runtime_schema_usage": [
+    {
+      "schema": "public",
+      "privilege_type": "USAGE",
+      "grantee": "app_runtime"
+    },
+    {
+      "schema": "public",
+      "privilege_type": "USAGE",
+      "grantee": "app_runtime"
+    },
+    {
+      "schema": "public",
+      "privilege_type": "USAGE",
+      "grantee": "app_runtime"
+    }
+  ],
+  "app_runtime_table_grants": [
+    {
+      "table_name": "agent_events",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "agent_events",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "agent_events",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "agent_events",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "agent_runs",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "agent_runs",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "agent_runs",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "agent_runs",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "agent_schema_version",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "agent_schema_version",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "agent_schema_version",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "agent_schema_version",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "agent_thread_activity",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "agent_thread_activity",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "agent_thread_activity",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "agent_thread_activity",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "approvals",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "approvals",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "approvals",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "approvals",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "audit",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "audit",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "audit",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "audit",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "checkpoint_blobs",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "checkpoint_blobs",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "checkpoint_blobs",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "checkpoint_blobs",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "checkpoint_migrations",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "checkpoint_migrations",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "checkpoint_migrations",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "checkpoint_migrations",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "checkpoint_thread_scopes",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "checkpoint_thread_scopes",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "checkpoint_thread_scopes",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "checkpoint_thread_scopes",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "checkpoint_writes",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "checkpoint_writes",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "checkpoint_writes",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "checkpoint_writes",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "checkpoints",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "checkpoints",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "checkpoints",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "checkpoints",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "executions",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "executions",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "executions",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "executions",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "inbound_events",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "inbound_events",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "inbound_events",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "inbound_events",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "it_assets",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "it_assets",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "it_assets",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "it_assets",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "knowledge_chunks",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "knowledge_chunks",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "knowledge_chunks",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "knowledge_chunks",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "knowledge_documents",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "knowledge_documents",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "knowledge_documents",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "knowledge_documents",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "memberships",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "memberships",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "memberships",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "memberships",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "operations",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "operations",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "operations",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "operations",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "outbox_events",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "outbox_events",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "outbox_events",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "outbox_events",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "routing_rules",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "routing_rules",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "routing_rules",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "routing_rules",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "satisfaction_surveys",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "satisfaction_surveys",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "satisfaction_surveys",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "satisfaction_surveys",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "sessions",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "sessions",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "sessions",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "sessions",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "sla_policies",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "sla_policies",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "sla_policies",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "sla_policies",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "store",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "store",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "store",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "store",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "store_migrations",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "store_migrations",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "store_migrations",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "store_migrations",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "stream_events",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "stream_events",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "stream_events",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "stream_events",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "streams",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "streams",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "streams",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "streams",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "support_members",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "support_members",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "support_members",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "support_members",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "support_schedules",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "support_schedules",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "support_schedules",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "support_schedules",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "support_teams",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "support_teams",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "support_teams",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "support_teams",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "tenant_it_policies",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "tenant_it_policies",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "tenant_it_policies",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "tenant_it_policies",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "tenants",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "tenants",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "tenants",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "tenants",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "ticket_assignments",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "ticket_assignments",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "ticket_assignments",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "ticket_assignments",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "ticket_messages",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "ticket_messages",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "ticket_messages",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "ticket_messages",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "ticket_sla",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "ticket_sla",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "ticket_sla",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "ticket_sla",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "ticket_status_events",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "ticket_status_events",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "ticket_status_events",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "ticket_status_events",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "ticket_workflow_runs",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "ticket_workflow_runs",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "ticket_workflow_runs",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "ticket_workflow_runs",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "tickets",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "tickets",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "tickets",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "tickets",
+      "privilege_type": "UPDATE"
+    }
+  ],
+  "app_runtime_dml_grants": [
+    {
+      "table_name": "approvals",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "approvals",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "approvals",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "approvals",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "executions",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "executions",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "executions",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "executions",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "operations",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "operations",
+      "privilege_type": "SELECT"
+    },
+    {
+      "table_name": "operations",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "operations",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "sessions",
+      "privilege_type": "INSERT"
+    },
+    {
+      "table_name": "sessions",
+      "privilege_type": "DELETE"
+    },
+    {
+      "table_name": "sessions",
+      "privilege_type": "UPDATE"
+    },
+    {
+      "table_name": "sessions",
+      "privilege_type": "SELECT"
+    }
+  ],
+  "app_runtime_routine_grants": [
+    {
+      "routine_name": "app_current_tenant_id",
+      "routine_schema": "public",
+      "privilege_type": "EXECUTE"
+    },
+    {
+      "routine_name": "checkpoint_thread_in_current_tenant",
+      "routine_schema": "public",
+      "privilege_type": "EXECUTE"
+    }
+  ],
+  "scope_functions": [
+    {
+      "schema": "public",
+      "proname": "app_current_tenant_id",
+      "args": "",
+      "proacl": [
+        "=X/migrator",
+        "migrator=X/migrator",
+        "app_runtime=X/migrator"
+      ],
+      "owner": "migrator"
+    },
+    {
+      "schema": "public",
+      "proname": "checkpoint_thread_in_current_tenant",
+      "args": "candidate_thread_id text",
+      "proacl": [
+        "=X/migrator",
+        "migrator=X/migrator",
+        "app_runtime=X/migrator"
+      ],
+      "owner": "migrator"
+    }
+  ],
+  "table_owners": [
+    {
+      "tablename": "approvals",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "audit",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "checkpoint_blobs",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "checkpoint_thread_scopes",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "checkpoint_writes",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "checkpoints",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "executions",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "memberships",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "operations",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "sessions",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "stream_events",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "streams",
+      "tableowner": "migrator"
+    },
+    {
+      "tablename": "tenants",
+      "tableowner": "migrator"
+    }
+  ],
+  "timestamp": "2026-09-04T02:19:49+0800",
+  "pg_server": "127.0.0.1:55432",
+  "pg_database": "langgraph",
+  "connected_as": "migrator",
+  "public_table_count": 38,
+  "public_tables_without_rls": [
+    "agent_events",
+    "agent_runs",
+    "agent_schema_version",
+    "agent_thread_activity",
+    "checkpoint_migrations",
+    "inbound_events",
+    "it_assets",
+    "knowledge_chunks",
+    "knowledge_documents",
+    "outbox_events",
+    "routing_rules",
+    "satisfaction_surveys",
+    "sla_policies",
+    "store",
+    "store_migrations",
+    "support_members",
+    "support_schedules",
+    "support_teams",
+    "tenant_it_policies",
+    "tenants",
+    "ticket_assignments",
+    "ticket_messages",
+    "ticket_sla",
+    "ticket_status_events",
+    "ticket_workflow_runs",
+    "tickets"
+  ],
+  "public_tables_with_rls": [
+    "approvals",
+    "audit",
+    "checkpoint_blobs",
+    "checkpoint_thread_scopes",
+    "checkpoint_writes",
+    "checkpoints",
+    "executions",
+    "memberships",
+    "operations",
+    "sessions",
+    "stream_events",
+    "streams"
+  ],
+  "non_tenant_public_tables_without_rls": [
+    "agent_events",
+    "agent_runs",
+    "agent_schema_version",
+    "agent_thread_activity",
+    "checkpoint_migrations",
+    "inbound_events",
+    "it_assets",
+    "knowledge_chunks",
+    "knowledge_documents",
+    "outbox_events",
+    "routing_rules",
+    "satisfaction_surveys",
+    "sla_policies",
+    "store",
+    "store_migrations",
+    "support_members",
+    "support_schedules",
+    "support_teams",
+    "tenant_it_policies",
+    "ticket_assignments",
+    "ticket_messages",
+    "ticket_sla",
+    "ticket_status_events",
+    "ticket_workflow_runs",
+    "tickets"
+  ],
+  "checks": {
+    "all_non_tenant_tables_rls_enabled_and_forced": true,
+    "tenants_not_rls": true,
+    "app_runtime_not_superuser_and_not_bypassrls": true,
+    "scope_functions_present": true,
+    "all_non_tenant_public_tables_rls": false
+  },
+  "conclusion": true,
+  "note": "Core data-plane RLS verified clean: the 12 non-tenant core tables (PostgresStore + TenantScopedCheckpointer) are ENABLE+FORCE RLS; tenants (platform) intentionally not RLS. However, full-schema enumeration found 25 other non-tenant public tables WITHOUT RLS: agent_events, agent_runs, agent_schema_version, agent_thread_activity, checkpoint_migrations, inbound_events, it_assets, knowledge_chunks, knowledge_documents, outbox_events, routing_rules, satisfaction_surveys, sla_policies, store, store_migrations, support_members, support_schedules, support_teams, tenant_it_policies, ticket_assignments, ticket_messages, ticket_sla, ticket_status_events, ticket_workflow_runs, tickets. Whether these are app-layer-scoped (design) or a gap requires reviewer judgment; this task is read-only data collection and made no schema changes."
+}

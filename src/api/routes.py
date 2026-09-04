@@ -45,6 +45,7 @@ from src.auth.security import (
     validate_session_owner,
     validate_stream_owner,
 )
+from src.auth.ratelimit import extract_client_ip, resolve_login_rate_limiter
 from src.config import get_settings
 from src.core.types import (
     ApprovalStatus,
@@ -140,17 +141,46 @@ def _content_to_text(content) -> str:
 
 # ---- 登录（签发真实 JWT）----
 @router.post("/auth/login", response_model=LoginResponse)
-async def login(request: LoginRequest, store=Depends(get_store),
+async def login(body: LoginRequest, request: Request, store=Depends(get_store),
                 settings=Depends(get_settings_dep)):
-    """登录端点：校验服务端凭据 → 签发真实 JWT（固定 iss/aud/exp，支持密钥轮换）。
+    """登录端点：双维度限流 + 失败退避 + 服务端凭据校验 → 签发真实 JWT。
 
     仅 `auth_backend=real` + 已配置 `AUTH_LOGIN_CREDENTIALS` 可用；否则 fail-closed（503）。
-    任何失败由 `issue_login_token` 写脱敏审计；本端点负责登录成功留痕（不含凭据）。
+    限流/退避拒绝路径写脱敏审计（reason: login_rate_limited / ip_rate_limited /
+    login_backoff / redis_unavailable）并记录 Prometheus 指标；成功登录也留痕（不含凭据）。
     """
-    token = issue_login_token(store, settings, request.tenant_id, request.user_id,
-                              request.credential)
-    store.append_audit(request.tenant_id, request.user_id, "auth.login", "auth",
-                       f"{request.tenant_id}:{request.user_id}",
+    client_ip = extract_client_ip(request, settings.login_trusted_proxy_depth)
+    limiter = resolve_login_rate_limiter(settings, request.app.state)
+    metrics = get_metrics()
+    account = f"{body.tenant_id}:{body.user_id}"
+
+    # 1) 预检查限流（不消耗配额）：账号/IP 超限或退避期内 → 拒绝 + 审计 + 指标。
+    decision = limiter.check(body.tenant_id, body.user_id, client_ip)
+    if not decision.allowed:
+        reason = decision.reason or "login_rate_limited"
+        metrics.counter("login_rate_limited_total", ("reason",), {"reason": reason})
+        metrics.counter("login_attempts_total", ("result",), {"result": "rate_limited"})
+        audit_security_denial(store, body.tenant_id, body.user_id, reason, "auth", account,
+                              {"client_ip": client_ip,
+                               "retry_after_s": round(decision.retry_after, 3)})
+        raise DomainError(
+            ErrorCode.TOO_MANY_REQUESTS, "登录尝试过于频繁，请稍后再试", 429,
+            {"reason": reason, "client_ip": client_ip,
+             "retry_after_s": round(decision.retry_after, 3)})
+
+    # 2) 实际服务端凭据校验（失败路径在 issue_login_token 内写脱敏审计）。
+    try:
+        token = issue_login_token(store, settings, body.tenant_id, body.user_id, body.credential)
+    except DomainError:
+        # 凭据错/账号不存在/成员被拒 → 更新失败计数与退避（防暴力登录核心）。
+        limiter.record(body.tenant_id, body.user_id, client_ip, ok=False)
+        metrics.counter("login_attempts_total", ("result",), {"result": "failure"})
+        raise
+
+    # 3) 成功：重置该账号失败计数与退避；保留成功审计，不携带凭据。
+    limiter.record(body.tenant_id, body.user_id, client_ip, ok=True)
+    metrics.counter("login_attempts_total", ("result",), {"result": "success"})
+    store.append_audit(body.tenant_id, body.user_id, "auth.login", "auth", account,
                        {"role": "tenant"}, _now())
     return LoginResponse(access_token=token, expires_in=settings.auth_jwt_ttl_seconds,
                          issued_at=_now())

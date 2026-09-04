@@ -1,0 +1,191 @@
+{
+  "meta": {
+    "task": "t5",
+    "role": "security-auditor",
+    "team": "deploy-prod-ready",
+    "attempt": 1,
+    "attempt_id": "38fc92db-b5cd-433f-ab2f-c8e09923287a",
+    "ts": "20260904-030405",
+    "objective": "栈启动后(t1)动态安全验收: 证明『连续观察期无跨租户 / 重复执行 / 审批绕过 / 未审计写操作』",
+    "deps": "t1(栈已拉起) + t2(静态评审+动态脚本清单)",
+    "environment": {
+      "docker_server": "29.6.2",
+      "compose_project": "after-sales-preview",
+      "container_api": "after-sales-preview-api-1",
+      "container_postgres": "after-sales-preview-postgres-1",
+      "storage_backend": "postgres",
+      "auth_backend": "real",
+      "env": "preview",
+      "llm_backend": "mock  (注: 当前 api 容器 LLM_BACKEND=mock, 非 openai_compatible; 能力矩阵仍评测驱动)",
+      "launch_allowed_tenants": "TENANT-A,TENANT-B",
+      "high_confidence_models": "self-hosted-demo",
+      "execution_mode": "shadow",
+      "stack_status": "t5 开始时栈已全部 healthy (api/frontend/nginx/postgres/redis/worker)。期间侦测到一次编排漂移(见 issue-ENV-1)。"
+    }
+  },
+  "pre_run_stack_recovery": {
+    "id": "issue-ENV-1",
+    "severity": "中(编排层瞬时)",
+    "detail": "t5 开始复核时, 检测到 after-sales-preview 栈中 postgres/redis healthy 但 api/frontend/worker/nginx 处于 Created/Exited 状态, 一次性 migrate 容器 Exited(1)。migrate 日志为 'failed to resolve host postgres' (瞬时 DNS race)。经排查根因: postgres 容器网络 DNS 别名缺失 'postgres'(DNSNames 仅容器名/短id), 导致依赖它的 migrate/api/worker 用 postgres:5432 连接失败。同时出现一个孤儿 after-sales-preview-worker-1 容器名冲突。处置: docker compose down(保留 bind data, data/preview-postgres 数据完好)后 docker compose up -d 重建, postgres 网络别名恢复含 'postgres', 全栈重新 healthy(仅 nginx 暴露 80/443)。属于部署编排层瞬时问题, 非安全缺陷; 但验证了 t1 迁移后数据面数据未丢。",
+    "verification": "重建后 postgres 容器 DNSNames 含 'postgres' 别名; 全栈 healthy; RLS 数据完好"
+  },
+  "checks": [
+    {
+      "id": "T5-1",
+      "name": "verify_launch_gate --strict(等效)",
+      "satisfied": true,
+      "method": "在 api 容器内构造真实 Settings(_env_file=None) 读取运行时配置, 调用 src.core.launch_gate.verify_launch_gate / tenant_allowed_for_launch",
+      "evidence": [
+        "env=preview; storage_backend=postgres; LAUNCH_GATE_STRICT=true; LAUNCH_REQUIRE_APPROVAL=true; LAUNCH_FULL_AUDIT=true; LAUNCH_MANUAL_REVIEW=true; execution_mode=shadow; provider=mock",
+        "launch_allowlist = [TENANT-A, TENANT-B](白名单生效)",
+        "verify_launch_gate ok=True, violations=[](无违规)",
+        "tenant_allowed(TENANT-A)=True; tenant_allowed(EVIL-TENANT)=False(非名单租户拒绝)",
+        "is_restricted_env=True(受限环境强制)"
+      ],
+      "note": "受限环境门控姿态 PASS。非名单租户请求会被 get_tenant_context(L39-42) 拒绝并写审计。"
+    },
+    {
+      "id": "T5-2",
+      "name": "verify_preview_fail_closed 等效",
+      "satisfied": true,
+      "method": "在 api 容器内构造 Settings 并调用 src.main.create_app, 断言受限环境 fail-closed",
+      "evidence": [
+        "preview + auth_backend=mock -> RuntimeError (pass)",
+        "production + mock -> RuntimeError (pass)",
+        "preview + real + 缺 AUTH_JWT_SECRET -> RuntimeError (pass)",
+        "production + real + 缺 AUTH_JWT_SECRET -> RuntimeError (pass)",
+        "preview + real + 提供 secret -> 允许构建 (pass)",
+        "development + mock -> 允许构建(本地) (pass)"
+      ],
+      "note": "FAIL_CLOSED_VERIFY: OK(6/6)。对齐 verify_fail_closed.sh 与 src/main.py fail_closed_auth_guard。"
+    },
+    {
+      "id": "T5-3",
+      "name": "能力矩阵交集: HIGH_CONFIDENCE_MODELS ∩ 评测报告 write_op_pass=true 非空",
+      "satisfied": true,
+      "method": "在 api 容器内读实际配置 + evidence/llm_candidate_eval.json, 调 src.llm.capability.resolve_high_confidence_models / capability_ok",
+      "evidence": [
+        "HIGH_CONFIDENCE_MODELS='self-hosted-demo'; LLM_MODEL='self-hosted-demo'(两者一致, 且与评测报告一致)",
+        "评测报告 llm_candidate_eval.json = {self-hosted-demo: write_op_pass=true}",
+        "resolve_high_confidence_models = ['self-hosted-demo'](非空, 交集>0)",
+        "capability_ok('self-hosted-demo')=True; capability_ok('random-not-in-list')=False",
+        "write_capable_models = ['self-hosted-demo']"
+      ],
+      "note": "非白名单模型写被拒并转人工(capability_ok=False 触发 nodes._write_action 的 MODEL_NOT_IN_WHITELIST 转人工)。注意: t2 的 GAP-01(LLM_MODEL 与白名单名一致性)在此环境已正确配置(均 self-hosted-demo)。t2 的 GAP-02(LLM_ALLOWED_HOSTS 通配符)此处 LLM_ALLOWED_HOSTS=localhost,127.0.0.1,10.0.0.0/8(无通配符), 安全。"
+    },
+    {
+      "id": "T5-4",
+      "name": "PostgreSQL RLS / 租户隔离",
+      "satisfied": true,
+      "method": "在 postgres 容器用 migrator(owner) psql 查 pg_class/pg_policies/pg_roles/pg_tables 元数据; 在 api 容器用 app_runtime 运行角色对 operations 做 RLS 行为验证",
+      "evidence": [
+        "RLS 启用+强制: 除 tenants 外全部 12 张表 relrowsecurity=true AND relforcerowsecurity=true (memberships/sessions/operations/approvals/executions/streams/stream_events/audit/checkpoint_thread_scopes/checkpoints/checkpoint_blobs/checkpoint_writes)",
+        "tenants relrowsecurity=false(平台主数据, 有意不启用)",
+        "12 条 RLS policy(含 3 条 checkpoint)均 'tenant_id = app_current_tenant_id()' 或 checkpoint_thread_in_current_tenant(thread_id); FORCE 使表 owner 也按 policy 过滤",
+        "roles: app_runtime rolsuper=f AND rolbypassrls=f(关键, 运行角色不绕过 RLS); migrator rolsuper=t(迁移/owner, 通过超管元数据)",
+        "scope functions: app_current_tenant_id() 与 checkpoint_thread_in_current_tenant(candidate_thread_id text) 均存在",
+        "table owners: sessions/operations/approvals/executions/checkpoint_* 表 owner 均为 migrator(app_runtime 非 owner)",
+        "app_runtime 对 sessions/operations/approvals/executions 具 SELECT/INSERT/UPDATE/DELETE(仅 DML, 无 DDL)",
+        "RLS 行为: app_runtime 未设 app.tenant_id 时 operations count=0(fail-closed 零可见); 设 TENANT-A 作用域后仅见 TENANT-A 数据(跨租户不可见)"
+      ],
+      "note": "满足『数据面带租户作用域 / 跨租户默认拒绝』。app_runtime NOBYPASSRLS 保证应用层即使漏设租户, DB RLS 兜底零可见。"
+    },
+    {
+      "id": "T5-5",
+      "name": "审批归属与幂等(真实 postgres 数据面走完整审批流程)",
+      "satisfied": true,
+      "method": "在 api 容器内用真实 PostgresStore + real JWT + TestClient 走 会话→退款申请→审批 完整链路(SSE 解析 approval_required)",
+      "evidence": [
+        "session_status=201(建会话)",
+        "chat_status=200 且生成 approval_id/operation_id(退款申请进入唯一 human_approval)",
+        "op_before_status=pending(审批前未执行, 无直接绕过)",
+        "cross_tenant_approval_status=404(TENANT-B 审批 TENANT-A 审批单被拒)",
+        "non_approver_decision_status=403(customer 审批被拒, require_role(admin/approver)生效)",
+        "no_confirmation_status=422(缺二次确认拒绝)",
+        "approve_status=200 且 approve_returned_same_op=true(审批通过, 返回同一 operation_id)",
+        "op_after_status=executed(审批通过后执行)",
+        "reapprove_status=200 且 reapprove_same_op=true(重复审批幂等: 同一 operation_id, 不重复执行)",
+        "cross_tenant_read_approval=404 且 cross_tenant_read_operation=404(跨租户读取零可见, 不泄露存在)",
+        "replay_same_cid={status:200, has_approval:true}(同 client_request_id 重放安全)"
+      ],
+      "note": "真实数据面完整走通: 无审批绕过(仅 approved 才执行), 审批归属校验(admin/approver, 同租户), 幂等(重复决策收敛同一 operation_id)。"
+    },
+    {
+      "id": "T5-6",
+      "name": "审计四维追溯 + 无未审计写操作",
+      "satisfied": true,
+      "method": "postgres psql 查 audit 表; api 容器 GET /api/audit?target_type=approval&target_id=... 定位; 核对关键写/拒绝路径 append_audit",
+      "evidence": [
+        "audit_for_approval_status=200 且 audit_for_approval_count=2(审批路径可定位: approval.decide + security.deny.approval_access_denied)",
+        "操作 139d3d46 的完整审计链: session.create → security.deny.forbidden(customer 越权审批) → security.deny.approval_access_denied(TENANT-B 跨租户) → approval.decide(ADMIN-A 通过) → execution.create(执行面) → security.deny.approval_access_denied / security.deny.operation_access_denied(TENANT-B 跨租户读取)",
+        "关键敏感/拒绝路径均有留痕: approval.decide / execution.create / security.deny.* (跨租户/越权/缺上下文)"
+      ],
+      "note": "无未审计写操作: 审批决策(approval.decide)与执行创建(execution.create)均在 audit 表留痕; 跨租户/越权/拒绝路径全部 security.deny.* 留痕。观察: 执行动作的审计 target_type=execution(target_id=execution_id), 而非 target_type=operation; 因此按 target_type=operation 过滤本次该 operation 得 0 条——这是审计键设计(执行面独立 entity), 非缺失审计(execution.create 已记录执行)。"
+    },
+    {
+      "id": "T5-7",
+      "name": "无重复执行(同一 operation_id 不被执行两次)",
+      "satisfied": true,
+      "method": "postgres psql 查 executions 表按 operation_id 分组, 确认无重复; 并查唯一约束",
+      "evidence": [
+        "operation 139d3d46 仅 1 条 execution: execution_id=8ecf5571..., status=confirmed, mode=shadow, idempotency_key=oprefund:TENANT-A:ORD-001:T5-CID-e8a5391d(含 tenant_id, 不含 attempt)",
+        "SELECT operation_id, count(*) FROM executions GROUP BY operation_id HAVING count(*)>1 -> 0 行(无任何 operation 被重复执行)",
+        "DB 唯一约束实际存在: executions_tenant_id_operation_id_key = UNIQUE(tenant_id, operation_id); operations_tenant_id_idempotency_key_key = UNIQUE(tenant_id, idempotency_key); approvals_tenant_id_operation_id_key = UNIQUE(tenant_id, operation_id)"
+      ],
+      "note": "DB 层 UNIQUE(tenant_id, operation_id) 硬兜底实现『同一资金操作绝不重复执行』。注: 8de84694/89d3dc1a 两条 operation 为 failed——是打补丁前 json.loads bug 导致的错误收尾(见 FOUND-SOFTWARE-1), 非重复执行。"
+    }
+  ],
+  "software_defects_found": [
+    {
+      "id": "FOUND-SOFTWARE-1",
+      "severity": "高(bug)",
+      "type": "PostgresStore JSONB 读取重复 json.loads",
+      "file": "src/infrastructure/postgres_store.py",
+      "lines": ["298 _row_to_operation: result=json.loads(row['result'])", "549 _row_to_execution: receipt / 551 compensation_result", "612 events_after: json.loads(r['data'])", "636 list_audit: detail=json.loads(r['detail'])"],
+      "symptom": "psycopg3 自动把 JSONB 列解析为 Python dict, 代码再 json.loads 抛 'the JSON object must be str, bytes or bytearray, not dict'。真实数据面上: ① 审批通过后 execute_refund 收尾时 update_operation 触发 _row_to_operation 崩溃, 把本应成功的执行错误标记为 FAILED(operation status=failed)并转人工; ② SSE 重放(run_resume/start 去重重放) events_after 崩溃; ③ 审计查询 list_audit 崩溃。",
+      "impact": "真实 Postgres 数据面上: 退款/退货/改址审批通过后的执行收尾会因崩溃被误标 FAILED→转人工; SSE 重放不可用; /api/audit 查询不可用。属资金/执行路径的阻断性缺陷。",
+      "repro": "POST /api/chat 退款 → POST /api/approvals/{id}/decision (approved, confirmation=true) → execute_refund 崩溃; GET /api/audit 崩溃; 同 cid SSE 重放崩溃。",
+      "fix": "对 psycopg3 已解析为 dict 的 JSONB 列, 用 'json.loads(x) if isinstance(x, (str,bytes)) else x' 防御; 或改用 SQLAlchemy JSON 类型让驱动返回 str。",
+      "runtime_patch_applied": "YES(仅容器运行时, 未改仓库源码): 容器内 /app/src/infrastructure/postgres_store.py 已打补丁(7 处), 使完整审批流程可走通以完成本验收。容器重启会还原, 需在仓库正式修复。"
+    }
+  ],
+  "unverified_or_derived": [
+    {
+      "id": "UV-1",
+      "item": "真实 LLM 端点(openai_compatible)链路",
+      "status": "未实测",
+      "note": "当前 api 容器 LLM_BACKEND=mock(内建规则), 未配置真实自托管 OpenAI 兼容端点。因此『EndpointGuard 网络白名单对真实端点的实机放行/拒绝』未实测; 能力矩阵(评测驱动)已实测。真实端点连通与白名单需后端接入后另验。"
+    },
+    {
+      "id": "UV-2",
+      "item": "真实资金/外部回调网关(live provider)",
+      "status": "未实测",
+      "note": "EXECUTION_MODE=shadow(仅生成模拟回执, 不触真实资金); 回调验签 apply_callback 在内存 pyest 已测(21/21), 但真实外部网关回调经 Webhook /api/callbacks 的实机链路未跑真实网关。"
+    },
+    {
+      "id": "UV-3",
+      "item": "通过 nginx(外部入口)的真实 HTTP 流程",
+      "status": "未实测(经 TestClient 直连 app)",
+      "note": "验收用 FastAPI TestClient(含真实 PostgresStore+real JWT)直连应用, 未经宿主 80/443 走 nginx 反向代理。nginx 端口绑定(仅 80/443)已由 compose ps 证实, 但端到端 HTTPS→nginx→api 的完整外部链路未在本验收内走通。"
+    },
+    {
+      "id": "UV-4",
+      "item": "跨租户会话/聊天多租户并发隔离的端到端压力场景",
+      "status": "未实测",
+      "note": "跨租户审批/读取已实测拒绝(404/403); 但同 thread 多租户并发写入、检查点(tenant-scoped checkpointer)在真实数据面的并发隔离压力未打。"
+    }
+  ],
+  "acceptance_mapping": {
+    "no_cross_tenant": "PASS: RLS FORCE(除 tenants 全表) + app_runtime NOBYPASSRLS + 应用层 tenant_id 作用域 + 跨租户审批/读取 404(实测 T5-4/T5-5)",
+    "no_duplicate_execution": "PASS: executions UNIQUE(tenant_id,operation_id) + 幂等锚点 + ON CONFLICT DO NOTHING + 二次审批幂等(T5-5/T5-7); DB 分组 HAVING count>1 为 0",
+    "no_approval_bypass": "PASS: 审批前 op=pending, 仅 approved 才执行, execute 复核(存在/动作/thread/审批/白名单), 非审批角色 403, 缺二次确认 422(T5-5)",
+    "no_unaudited_write": "PASS: 审批/执行/拒绝/跨租户/越权全部 append_audit; 审计四维可定位(T5-6)"
+  },
+  "conclusion": "动态安全验收(真实 preview 栈 + 真实 Postgres 数据面 + 真实 JWT): 四项验收标准(无跨租户 / 无重复执行 / 无审批绕过 / 无未审计写)在真实数据面上全部达成。期间发现并定位一个高严重度真实软件缺陷 FOUND-SOFTWARE-1(PostgresStore 对 psycopg3 已解析 JSONB 列重复 json.loads), 该缺陷在真实数据面会阻断审批后执行收尾、SSE 重放与审计查询, 需在仓库正式修复(本次仅在容器运行时打补丁以完成验收, 未改仓库源码)。另侦测到一次编排层瞬时 DNS/网络漂移 issue-ENV-1(已重建恢复, 数据未丢)。未实测项(真实 LLM 端点/真实资金回调/经 nginx 外部链路/并发压力)已如实列为 UV-1..UV-4。",
+  "followup_fix": {
+    "id": "FOUND-SOFTWARE-1",
+    "status": "已修复(t9)",
+    "detail": "已在仓库 src/infrastructure/postgres_store.py 新增 _as_json 防御式解析助手并切换 5 处 JSONB 读取; 内存 pytest 37/37 PASS; 容器内真实 Postgres 端到端验证 op_after=executed(不再误标 FAILED)、SSE 重放与 /api/audit 正常; 重建 api/worker 镜像+重启生效, 容器内确认仓库修复版代码。详见 evidence/SOFTWARE_FIX_FOUND_1.md。",
+    "fix_ts": "20260904-030405(同日跟进)"
+  }
+}

@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -47,6 +49,45 @@ def seed_default(store: MemoryStore) -> None:
     store.add_membership("TENANT-B", "APPROVER-B", Role.APPROVER)
 
 
+_logger = logging.getLogger(__name__)
+
+
+def demo_seed_gate(settings: Settings, seed_requested: bool) -> bool:
+    """演示 seed 门控（双保险 fail-closed）：决定是否允许调用 `seed_default` 创建演示租户。
+
+    演示租户（TENANT-A / TENANT-B 及演示成员）只能用于本地开发/测试，绝不进入
+    preview/production 数据面。规则：
+    - **受限环境（preview/production）**：一律禁止演示 seed（fail-closed，不创建演示数据）。
+      - 若还显式设置了 `DEMO_SEED_ENABLED=true`，属明显错误配置 → 抛 `RuntimeError`
+        中断启动（与受限环境禁止 Mock 认证 / 缺失 JWT 的启动即失败行为一致），并提示
+        改用 `scripts/create_bootstrapped_tenants.py` 创建真实租户。
+      - 否则即便调用方传 `seed=True`（默认值）也跳过，不创建任何演示租户。
+    - **仅 development/test 且 `demo_seed_enabled=True` 且调用方请求 seed** 才允许。
+
+    返回 True 表示允许执行演示 seed；False 表示跳过（受限环境或未显式启用）。
+    """
+    if settings.is_restricted_env:
+        if settings.demo_seed_enabled:
+            _logger.warning(
+                "受限环境（preview/production）检测到 DEMO_SEED_ENABLED=true：演示 seed 属非法配置，"
+                "拒绝并以 RuntimeError fail-closed。")
+            raise RuntimeError(
+                "受限环境（preview/production）禁止演示 seed（DEMO_SEED_ENABLED=true 属非法配置）；"
+                "请用 scripts/create_bootstrapped_tenants.py 创建真实租户。当前启动 fail-closed。")
+        if seed_requested:
+            _logger.info("受限环境（preview/production）跳过演示 seed：演示租户仅限 development/test。")
+        return False
+
+    allowed = (seed_requested and settings.demo_seed_enabled
+               and settings.env in {"development", "test"})
+    if not allowed:
+        _logger.info(
+            "演示 seed 未执行（env=%s, DEMO_SEED_ENABLED=%s, seed_requested=%s）；"
+            "如需演示数据请仅在 development/test 显式设置 DEMO_SEED_ENABLED=true。",
+            settings.env, settings.demo_seed_enabled, seed_requested)
+    return allowed
+
+
 def fail_closed_auth_guard(settings: Settings) -> None:
     """受限环境（preview/production）必须使用真实认证后端且具备 JWT 密钥，否则启动即失败。
 
@@ -73,6 +114,9 @@ def create_app(store=None, llm=None, checkpointer=None,
                retriever=None, seed: bool = True, settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     fail_closed_auth_guard(settings)
+    # 演示 seed 门控：受限环境（preview/production）禁止 seed_default（可抛 RuntimeError
+    # fail-closed）；仅 development/test 且 DEMO_SEED_ENABLED=true 才允许。结果缓存供两处调用。
+    demo_seed_allowed = demo_seed_gate(settings, seed)
     # 首次上线门控：受限环境下严格校验（少量租户/仅审批后执行/全量审计/人工复核）。
     # 默认宽松（launch_gate_strict=False），上线时由 verify_launch_gate 脚本 --strict 强制执行。
     from src.core.launch_gate import enforce_strict, verify_launch_gate
@@ -118,7 +162,7 @@ def create_app(store=None, llm=None, checkpointer=None,
             if settings.database_migrate_on_startup:
                 initialize_postgres(store)  # 业务表 + checkpoint 表 + RLS + 函数（幂等）
             require_postgres_ready(store)   # RLS 自检，未就绪 fail-closed
-            if seed:
+            if demo_seed_allowed:
                 seed_default(store)
             await pool.open()
             saver = create_checkpointer(pool)
@@ -164,7 +208,7 @@ def create_app(store=None, llm=None, checkpointer=None,
         )
 
     app.include_router(routes.router, prefix=settings.api_prefix)
-    if seed and not postgres_mode:
+    if demo_seed_allowed and not postgres_mode:
         seed_default(store)
     return app
 

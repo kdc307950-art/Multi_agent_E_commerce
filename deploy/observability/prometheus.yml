@@ -4,6 +4,12 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# 告警规则：由 report-compiler (t4) 生成的模板骨架。组件存活类(up)可直接生效；
+# 错误率/审批失败率/对账/人工介入/RPO-RTO 5 类因缺对应 Prometheus 指标(含 status 标签)
+# 表达式当前为空不会误报，待指标增强(见 alert-rules-README.md 缺口清单)。
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
 scrape_configs:
   # 应用 API：从 /api/metrics 拉取（同源反向代理下的私有内网，经 app-net 网络可达 api:8000）。
   - job_name: api

@@ -265,6 +265,7 @@ def test_execute_rejects_when_not_approved(llm, store):
     })
     assert out["error"] == ErrorCode.APPROVAL_BINDING_MISMATCH.value
     assert store.get_operation("TENANT-A", op.operation_id).status != OperationStatus.EXECUTED
+    assert store.list_execution_records("TENANT-A") == []  # 未 approved 不产生执行记录
 
 
 def test_execute_rejects_action_mismatch(llm, store):
@@ -277,10 +278,11 @@ def test_execute_rejects_action_mismatch(llm, store):
     })
     assert out["error"] == ErrorCode.APPROVAL_BINDING_MISMATCH.value
     assert store.get_operation("TENANT-A", op.operation_id).status != OperationStatus.EXECUTED
+    assert store.list_execution_records("TENANT-A") == []  # 动作不匹配不产生执行记录
 
 
 def test_execute_rejects_model_not_in_whitelist(llm, store):
-    """执行节点复核模型白名单：低档模型不得执行写库。"""
+    """执行节点复核模型白名单：低档模型不得执行写库（不得落到执行引擎/外部资金）。"""
     op, appr = _make_pending_refund(store, thread="th-mw", rid="REQ-EX4")
     store.claim_approval_decision("TENANT-A", appr.approval_id, "ADMIN-A", True, None, 2.0)
     nodes = make_nodes(llm, store)
@@ -291,6 +293,7 @@ def test_execute_rejects_model_not_in_whitelist(llm, store):
     })
     assert out["error"] == ErrorCode.MODEL_NOT_IN_WHITELIST.value
     assert store.get_operation("TENANT-A", op.operation_id).status != OperationStatus.EXECUTED
+    assert store.list_execution_records("TENANT-A") == []  # 低档模型不产生任何执行/外部副作用
 
 
 def test_same_thread_query_after_approval(client):

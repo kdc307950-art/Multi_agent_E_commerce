@@ -5,12 +5,15 @@
 #    （internal），不发布任何宿主机端口。
 # 2. HTTPS 由 nginx 终结（同源代理），前端统一访问同源 /api，API 关闭 CORS（ENABLE_CORS=false）。
 # 3. 演示/硬编码密码全部移除，改由服务器环境密钥注入：POSTGRES_PASSWORD、REDIS_PASSWORD、
-#    APP_RUNTIME_PASSWORD、AUTH_JWT_SECRET、LLM_API_KEY。
+#    APP_RUNTIME_PASSWORD、AUTH_JWT_SECRET、AUTH_LOGIN_CREDENTIALS、LLM_API_KEY、
+#    EXECUTION_CALLBACK_HMAC_SECRET。
 # 4. 数据库迁移角色（POSTGRES_USER=migrator，owner/DDL）与运行角色（app_runtime，
 #    LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS）严格分离；api/worker 仅以运行角色连接
 #    （DATABASE_URL），不执行 DDL；migrate 一次性服务以迁移角色执行建表/RLS/函数。
 # 5. 受限环境 fail-closed：ENV=preview 且 AUTH_BACKEND=real 且 AUTH_JWT_SECRET 缺失时，
 #    api 启动即失败；若 AUTH_BACKEND=mock 亦启动即失败（见 src/main.py fail_closed_auth_guard）。
+# 6. 首次上线门控/受控执行：LAUNCH_ALLOWED_TENANTS（首批租户）+ LAUNCH_GATE_STRICT=true（受限强制），
+#    EXECUTION_MODE=shadow（沙箱），EXECUTION_CALLBACK_HMAC_SECRET 必须为非默认随机密钥（check_secrets 拒绝默认值）。
 #
 # 用法（在本文件所在目录执行；密钥放在 deploy/.env.preview，见 .example）：
 #   docker compose --env-file deploy/.env.preview -f docker-compose.preview.yml build
@@ -74,14 +77,41 @@ services:
     environment:
       # 受限环境：真实认证 + PostgreSQL 数据面 + 关闭 CORS（同源反向代理）。
       - ENV=preview
+      # 发布记录所需：环境/配置版本（src.config Settings.deploy_config_version 读取；漂移审计用）。
+      - DEPLOY_CONFIG_VERSION=${DEPLOY_CONFIG_VERSION:-0.1.0}
       - STORAGE_BACKEND=postgres
       - AUTH_BACKEND=real
       - AUTH_JWT_SECRET=${AUTH_JWT_SECRET:?AUTH_JWT_SECRET 必须由密钥注入，否则启动 fail-closed}
       - AUTH_JWT_ISSUER=${AUTH_JWT_ISSUER:-after-sales}
       - AUTH_JWT_AUDIENCE=${AUTH_JWT_AUDIENCE:-after-sales-web}
+      - AUTH_JWT_TTL_SECONDS=${AUTH_JWT_TTL_SECONDS:-3600}
+      - AUTH_JWT_KID=${AUTH_JWT_KID:-}
+      - AUTH_JWT_ROTATED_SECRETS=${AUTH_JWT_ROTATED_SECRETS:-}
+      - AUTH_LOGIN_CREDENTIALS=${AUTH_LOGIN_CREDENTIALS:?AUTH_LOGIN_CREDENTIALS 必须注入登录凭据表}
+      # 登录凭据哈希算法：仅允许 argon2id|bcrypt（禁止无盐 sha256/md5；check_secrets 校验）。
+      - AUTH_CREDENTIAL_HASH=${AUTH_CREDENTIAL_HASH:-argon2id}
+      # 登录限流与失败退避（双维度：账号+IP）。preview 单进程缺省 memory；多副本可切 redis（需 REDIS_URL）。
+      - LOGIN_RATE_LIMIT_STORE=${LOGIN_RATE_LIMIT_STORE:-memory}
+      - LOGIN_RATE_LIMIT_WINDOW_SECONDS=${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      - LOGIN_ACCOUNT_RATE_LIMIT=${LOGIN_ACCOUNT_RATE_LIMIT:-5}
+      - LOGIN_IP_RATE_LIMIT=${LOGIN_IP_RATE_LIMIT:-30}
+      - LOGIN_BACKOFF_MAX_FAILURES=${LOGIN_BACKOFF_MAX_FAILURES:-5}
+      - LOGIN_BACKOFF_BASE_SECONDS=${LOGIN_BACKOFF_BASE_SECONDS:-1.0}
+      - LOGIN_BACKOFF_MAX_SECONDS=${LOGIN_BACKOFF_MAX_SECONDS:-900}
+      # 受信任反向代理头来源数（nginx 之后取最后一个可信 X-Forwarded-For 作为客户端 IP）。
+      - LOGIN_TRUSTED_PROXY_DEPTH=${LOGIN_TRUSTED_PROXY_DEPTH:-1}
+      # 演示/种子数据：preview/production 一律禁止 seed_default（真实租户走受控迁移/运维脚本）。
+      - DEMO_SEED_ENABLED=false
       - ENABLE_CORS=false
+      # 首批上线租户白名单（受限环境强制；verify_launch_gate --strict 要求非空）。
+      - LAUNCH_ALLOWED_TENANTS=${LAUNCH_ALLOWED_TENANTS:?LAUNCH_ALLOWED_TENANTS 必须注入首批上线租户白名单}
+      # 严格上线门控：受限环境强制开启（配合 verify_launch_gate.py --strict 双重保障）。
+      - LAUNCH_GATE_STRICT=true
+      - LAUNCH_REQUIRE_APPROVAL=${LAUNCH_REQUIRE_APPROVAL:-true}
+      - LAUNCH_FULL_AUDIT=${LAUNCH_FULL_AUDIT:-true}
+      - LAUNCH_MANUAL_REVIEW=${LAUNCH_MANUAL_REVIEW:-true}
       # 运行角色（app_runtime，非 owner）：仅 DML；preview 不允许运行角色执行 DDL。
-      - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD:?APP_RUNTIME_PASSWORD 必须由密钥注入}@postgres:5432/${POSTGRES_DB:-langgraph}
       - DATABASE_MIGRATE_ON_STARTUP=false
       # Redis（带口令：redis://:password@host）
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -91,6 +121,16 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://model-endpoint:8001/v1}
       - LLM_API_KEY=${LLM_API_KEY:?LLM_API_KEY 必须由密钥注入}
       - LLM_MODEL=${LLM_MODEL:-self-hosted-model}
+      # 完全自托管 LLM 端点网络白名单（受限环境必须显式；空则 fail-closed，阻断未批准外联）。
+      - LLM_ALLOWED_HOSTS=${LLM_ALLOWED_HOSTS:?LLM_ALLOWED_HOSTS 必须显式配置端点网络白名单}
+      # 写操作能力矩阵（评测驱动）：仅白名单内且评测 write_op_pass=true 的模型可写，否则转人工。
+      - HIGH_CONFIDENCE_MODELS=${HIGH_CONFIDENCE_MODELS:?HIGH_CONFIDENCE_MODELS 必须注入写操作白名单模型}
+      - LLM_EVAL_REPORT_PATH=${LLM_EVAL_REPORT_PATH:-/app/evidence/llm_candidate_eval.json}
+      # 受控执行面：shadow（只生成待执行记录+模拟回执，不触真实资金）| live（需沙箱端到端验收后）。
+      - EXECUTION_MODE=${EXECUTION_MODE:-shadow}
+      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-mock}
+      # 回调 HMAC-SHA256 验签密钥：必须由环境密钥注入；禁止使用内建默认值（check_secrets 拒绝）。
+      - EXECUTION_CALLBACK_HMAC_SECRET=${EXECUTION_CALLBACK_HMAC_SECRET:?EXECUTION_CALLBACK_HMAC_SECRET 必须由密钥注入，禁止默认值}
       # 完全自托管检索：keyword（确定性缺省）
       - RETRIEVAL_BACKEND=keyword
       - CREWAI_ENABLED=false
@@ -103,6 +143,9 @@ services:
       # 结构化 JSON 日志（带 tenant_id 上下文），由自托管日志链路采集；建议 preview 开启。
       - LOG_JSON_FORMAT=${LOG_JSON_FORMAT:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      # 写操作评测报告（只读挂载进容器，供能力矩阵按 write_op_pass=true 门控；避免未设评测即全量转人工）。
+      - ./evidence/llm_candidate_eval.json:/app/evidence/llm_candidate_eval.json:ro
     # 私有内网：由 nginx 反向代理，不发布宿主端口。
     networks: [internal]
     depends_on:
@@ -126,10 +169,28 @@ services:
     command: celery -A src.tasks.worker worker -l info
     environment:
       - ENV=preview
+      # 发布记录所需：环境/配置版本（与 api 一致，配置漂移审计）。
+      - DEPLOY_CONFIG_VERSION=${DEPLOY_CONFIG_VERSION:-0.1.0}
+      # 凭据哈希与登录限流/退避配置（与 api 保持一致；worker 虽不承载登录，但配置加载统一）。
+      - AUTH_CREDENTIAL_HASH=${AUTH_CREDENTIAL_HASH:-argon2id}
+      - LOGIN_RATE_LIMIT_STORE=${LOGIN_RATE_LIMIT_STORE:-memory}
+      - LOGIN_RATE_LIMIT_WINDOW_SECONDS=${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      - LOGIN_ACCOUNT_RATE_LIMIT=${LOGIN_ACCOUNT_RATE_LIMIT:-5}
+      - LOGIN_IP_RATE_LIMIT=${LOGIN_IP_RATE_LIMIT:-30}
+      - LOGIN_BACKOFF_MAX_FAILURES=${LOGIN_BACKOFF_MAX_FAILURES:-5}
+      - LOGIN_BACKOFF_BASE_SECONDS=${LOGIN_BACKOFF_BASE_SECONDS:-1.0}
+      - LOGIN_BACKOFF_MAX_SECONDS=${LOGIN_BACKOFF_MAX_SECONDS:-900}
+      - LOGIN_TRUSTED_PROXY_DEPTH=${LOGIN_TRUSTED_PROXY_DEPTH:-1}
+      # 演示/种子数据：preview/production 一律禁止 seed_default。
+      - DEMO_SEED_ENABLED=false
       - STORAGE_BACKEND=postgres
-      - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - DATABASE_URL=postgresql://${APP_RUNTIME_USER:-app_runtime}:${APP_RUNTIME_PASSWORD:?APP_RUNTIME_PASSWORD 必须由密钥注入}@postgres:5432/${POSTGRES_DB:-langgraph}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      # 受控执行面 + 回调验签：对账任务 build_adapter 需要同一执行模式/提供方/回调密钥。
+      - EXECUTION_MODE=${EXECUTION_MODE:-shadow}
+      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-mock}
+      - EXECUTION_CALLBACK_HMAC_SECRET=${EXECUTION_CALLBACK_HMAC_SECRET:?EXECUTION_CALLBACK_HMAC_SECRET 必须由密钥注入，禁止默认值}
       # 自托管可观测（可选）：与 api 一致。
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
@@ -190,18 +251,39 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- -T 3 http://localhost/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- -T 3 http://127.0.0.1/healthz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
       start_period: 15s
+
+  # 每 15 分钟 pg_dump -Fc 到持久 /backups（把 RPO 上界真实绑定到 <=15min，供 D2 备份恢复演练界定
+  # 备份点后变更被排除）。独立 sidecar 容器（postgres 镜像自带 pg_dump），挂载脚本与持久卷。
+  backup:
+    image: docker.1ms.run/library/postgres:17-alpine
+    command: ["sh", "/app/backup.sh"]
+    environment:
+      - BACKUP_DB_URL=postgresql://${POSTGRES_USER:-migrator}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - BACKUP_KEEP=${BACKUP_KEEP:-8}
+      - BACKUP_INTERVAL_SECONDS=${BACKUP_INTERVAL_SECONDS:-900}
+    volumes:
+      - ./deploy/scripts/preview_backup_scheduler.sh:/app/backup.sh:ro
+      - ./data/preview-backups:/backups
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 networks:
   # edge：仅 nginx 挂载，宿主经 80/443 进出的唯一通道。
   edge:
     driver: bridge
   # internal：数据面 + 应用面私网（不发布任何宿主端口，故 PostgreSQL/Redis/API/前端/worker
-  # 在宿主机上无监听）。允许自托管模型端点接入；如需更严格的完全自托管出口阻断，
-  # 可将本网络设为 internal:true 并把自托管 LLM 网关挂到同一网络（见部署清单）。
+  # 在宿主机上无监听）。按宪法 1.8 拟设 internal:true 硬阻断出网，但实测在 Docker Desktop
+  # (desktop-linux/WSL2) 下 internal:true 会破坏 Docker 内嵌 DNS 的容器名解析（migrate/api 无法
+  # 解析 postgres 导致整个栈起不来），故回退为普通 bridge 以保数据面可用。出网阻断的等价落地：
+  # 数据面不发布宿主端口 + LLM_BACKEND=mock（无 LLM 出网）+ 完全自托管 + 若切换真实自托管 LLM
+  # 网关须把该网关容器挂到本 internal 网（见部署记录；此为"出网阻断"的已记录边界/取舍）。
   internal:
     driver: bridge

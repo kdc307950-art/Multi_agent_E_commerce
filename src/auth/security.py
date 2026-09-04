@@ -37,11 +37,19 @@ from src.core.types import (
 TOKEN_PREFIX = "mock"
 
 # 脱敏黑名单：凡 detail 键名包含这些子串（不区分大小写），其值一律写 [REDACTED]，
-# 保证审计日志永不记录口令、令牌、地址、完整支付凭证等敏感信息。
+# 保证审计日志永不记录口令、令牌、地址、完整支付凭证、凭据哈希等敏感信息。
+# 「hash/phc/credential_hash」覆盖 PHC 哈希串（如 $argon2id$...）落入 detail 键的情形，
+# 满足「凭据/哈希永不入日志」铁律。
 _SENSITIVE_KEYS = (
     "password", "credential", "secret", "token", "authorization",
     "address", "id_number", "card", "payment", "phone", "email",
+    "hash", "phc", "credential_hash",
 )
+
+# 弱哈希识别：无盐 SHA-256 为 64 位十六进制（无 `$` 前缀）；MD5 为 32 位十六进制。
+# 一旦检出即拒绝登录并在审计中标注 `legacy_sha256` / `legacy_md5`，绝不用弱哈希校验凭据。
+_LEGACY_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_LEGACY_MD5_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
 
 def _redact_detail(detail: dict | None) -> dict:
@@ -258,10 +266,61 @@ def issue_jwt(tenant_id: str, user_id: str, role: Role, settings, now: float | N
     return f"{header_b64}.{payload_b64}.{_b64url_encode(sig)}"
 
 
-def parse_login_credentials(settings) -> dict[str, str]:
-    """解析 `AUTH_LOGIN_CREDENTIALS` JSON 为 `{<tenant_id>:<user_id>: sha256_hex}` 映射。
+def _verify_credential(stored: str, credential: str, algo: str) -> tuple[bool, str]:
+    """校验登录凭据：按 `algo`（argon2id | bcrypt）用 PHC 哈希做常量时间校验。
 
-    非法格式/空表返回 `{}`（登录随后 fail-closed）。凭据仅存哈希且永不入日志。
+    返回 `(valid, audit_reason)`：
+    - `(True, "")`：校验通过；
+    - `(False, "legacy_sha256" / "legacy_md5")`：存储的是旧无盐 SHA-256/MD5，一律拒绝
+      （**弱哈希已消除**，绝不降级用弱哈希校验）；
+    - `(False, "login_failed")`：凭据不匹配、PHC 格式非法或 `algo` 未识别（fail-closed）。
+
+    安全红线：本函数绝不把 `credential` 原文或哈希回显/写入返回值；异常都被吞掉并归为
+    失败（不因校验库异常泄露内部细节）。Argon2id 用 `argon2.PasswordHasher.verify`、
+    bcrypt 用 `bcrypt.checkpw`，二者内置常量时间比对。
+    """
+    stored = str(stored or "")
+    presented = credential or ""
+    # 1) 旧弱哈希一律拒绝（无盐 SHA-256 64hex / MD5 32hex）。
+    if _LEGACY_SHA256_RE.fullmatch(stored):
+        return False, "legacy_sha256"
+    if _LEGACY_MD5_RE.fullmatch(stored):
+        return False, "legacy_md5"
+    algo = (algo or "argon2id").strip().lower()
+
+    if algo == "argon2id":
+        if not stored.startswith("$argon2"):
+            # 存储值不是 Argon2 PHC（如 bcrypt 或乱值）→ 按配置拒绝，不猜测。
+            return False, "login_failed"
+        from argon2 import PasswordHasher
+        from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
+
+        try:
+            PasswordHasher().verify(stored, presented)
+            return True, ""
+        except (VerifyMismatchError, InvalidHashError, VerificationError):
+            return False, "login_failed"
+
+    if algo == "bcrypt":
+        if not (stored.startswith("$2a$") or stored.startswith("$2b$") or stored.startswith("$2y$")):
+            return False, "login_failed"
+        import bcrypt
+
+        try:
+            ok = bcrypt.checkpw(presented.encode("utf-8"), stored.encode("utf-8"))
+            return (bool(ok), "" if ok else "login_failed")
+        except ValueError:
+            return False, "login_failed"
+
+    # 未知算法 → fail-closed，绝不用任何回退/弱路径校验。
+    return False, "login_failed"
+
+
+def parse_login_credentials(settings) -> dict[str, str]:
+    """解析 `AUTH_LOGIN_CREDENTIALS` JSON 为 `{<tenant_id>:<user_id>: <PHC 哈希>}` 映射。
+
+    非法格式/空表返回 `{}`（登录随后 fail-closed）。仅存 PHC 哈希且永不入日志；
+    是否弱哈希（sha256/md5）在 `_verify_credential` 校验阶段拒绝并审计标注。
     """
     raw = (settings.auth_login_credentials or "").strip()
     if not raw:
@@ -278,8 +337,10 @@ def parse_login_credentials(settings) -> dict[str, str]:
 def issue_login_token(store, settings, tenant_id: str, user_id: str, credential: str) -> str:
     """登录端点：校验成员关系 + 服务端凭据 → 签发真实 JWT。
 
-    安全红线：仅 real 后端可登录；凭据只在服务端做 sha256 常量时间比对；任何失败均拒绝并
-    写脱敏审计（绝不记录 credential 原文）。未配置凭据表 → fail-closed（503）。
+    安全红线：仅 real 后端可登录；凭据按 `settings.auth_credential_hash`（argon2id | bcrypt）
+    用 PHC 哈希做常量时间校验；弱哈希（sha256/md5）一律拒绝并在审计中标注 `legacy_sha256`
+    /`legacy_md5`；任何失败均拒绝并写脱敏审计（绝不记录 credential/哈希原文）。
+    未配置凭据表 → fail-closed（503）。
     """
     if settings.auth_backend != "real":
         audit_security_denial(store, tenant_id, user_id, "login_backend_not_real", "auth",
@@ -307,10 +368,13 @@ def issue_login_token(store, settings, tenant_id: str, user_id: str, credential:
         audit_security_denial(store, tenant_id, user_id, "login_credentials_unknown",
                               "auth", f"{tenant_id}:{user_id}")
         raise DomainError(ErrorCode.UNAUTHORIZED, "登录失败", 401)
-    presented = hashlib.sha256((credential or "").encode("utf-8")).hexdigest()
-    if not hmac.compare_digest(presented, str(stored)):
-        audit_security_denial(store, tenant_id, user_id, "login_failed", "auth",
-                              f"{tenant_id}:{user_id}")
+
+    algo = getattr(settings, "auth_credential_hash", "argon2id")
+    valid, reason = _verify_credential(str(stored), credential or "", algo)
+    if not valid:
+        audit_security_denial(store, tenant_id, user_id, reason, "auth",
+                              f"{tenant_id}:{user_id}",
+                              {"algorithm": (algo or "argon2id").strip().lower()})
         raise DomainError(ErrorCode.UNAUTHORIZED, "登录失败", 401)
 
     return issue_jwt(tenant_id, user_id, membership.role, settings)

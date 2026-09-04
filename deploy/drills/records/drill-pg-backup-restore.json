@@ -1,0 +1,15 @@
+﻿{
+    "scenario":  "D2_pg_backup_restore",
+    "rpo_seconds":  900,
+    "rto_restore_seconds":  1.668,
+    "restore_ok":  true,
+    "marker_excluded":  0,
+    "tenants_preserved":  1,
+    "tenants_preserved_b":  1,
+    "backup_file":  "drill-pg-backup-20260904030211.dump",
+    "backup_bytes":  51908,
+    "db_name":  "langgraph",
+    "restore_db":  "langgraph_restore_test",
+    "rpo_basis":  "baseline_15min",
+    "timestamp":  "2026-09-04T03:02:21.7572061+08:00"
+}

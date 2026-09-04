@@ -31,8 +31,13 @@ class BaseLLM(ABC):
 
     def __init__(self, high_confidence_models: frozenset[str] | None = None) -> None:
         # 默认演示白名单仅用于本地/测试；生产必须由 build_llm 注入评测驱动结果。
+        # 注意：受限环境 resolve_high_confidence_models 会返回空 frozenset()（fail-closed），
+        # 空集是 falsy，绝不能用 `or DEFAULT_DEV_WRITE_MODELS` 回退成演示默认白名单，
+        # 否则会破坏受限环境的写操作 fail-closed 边界。只在显式传 None 时才用演示默认值。
         from src.llm.capability import DEFAULT_DEV_WRITE_MODELS
-        self._high_confidence_models = high_confidence_models or DEFAULT_DEV_WRITE_MODELS
+        self._high_confidence_models = (
+            DEFAULT_DEV_WRITE_MODELS if high_confidence_models is None else high_confidence_models
+        )
 
     @property
     @abstractmethod

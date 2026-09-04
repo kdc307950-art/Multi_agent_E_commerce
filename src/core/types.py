@@ -204,6 +204,7 @@ class ErrorCode(str, Enum):
     SESSION_EXPIRED = "session_expired"        # 会话已过期 → 拒绝访问/使用
     SESSION_DELETING = "session_deleting"      # 会话删除中 → 拒绝访问/使用
     AUTH_BACKEND_DISABLED = "auth_backend_disabled"  # 受限环境禁用 Mock 认证，fail-closed
+    TOO_MANY_REQUESTS = "too_many_requests"      # 登录限流/退避触发 → HTTP 429
     FAIL_CLOSED_RAG = "fail_closed_rag"
     MODEL_NOT_IN_WHITELIST = "model_not_in_whitelist"
     IDEMPOTENCY_REPLAY = "idempotency_replay"

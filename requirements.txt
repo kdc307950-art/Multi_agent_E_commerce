@@ -21,6 +21,12 @@ python-multipart>=0.0.9
 python-dotenv>=1.0.0
 sse-starlette>=2.0.0
 
+# ---- 登录凭据哈希（Argon2id / bcrypt；完全自托管本地依赖；默认 argon2id，禁用无盐 SHA-256）----
+# 服务端只保存 PHC 哈希串（如 $argon2id$... / $2b$...），绝不明文存库/入日志。
+# 生成脚本：python scripts/hash_login_credentials.py（--algorithm argon2id|bcrypt）。
+argon2-cffi>=23.1.0
+bcrypt>=4.1.0
+
 # ---- 存储 / 队列（数据面；Docker/预发布验证）----
 sqlalchemy>=2.0
 psycopg[binary]>=3.1

@@ -23,6 +23,7 @@ checkpoints.db-wal
 .env.local
 deploy/.env.preview
 deploy/secrets/certs/
+deploy/secrets/preview_login_credentials.txt
 
 # Node / frontend
 node_modules/
@@ -38,3 +39,20 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent / harness 会话与临时产物（非源码，不入库）
+.agent-teams/
+_probe_py/
+_acceptance_tmp/
+.pytest-tmp/
+.pytest-tmp-sqlite-diag/
+graphflow-out/
+
+# 备份与转储（二进制/可再生成，不入库）
+deploy/backups/
+*.dump
+deploy/drills/records/*.dump
+
+# 本地开发探针
+*.tmp
+tmp/

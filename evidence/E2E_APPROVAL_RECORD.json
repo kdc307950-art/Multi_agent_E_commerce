@@ -1,0 +1,61 @@
+{
+  "label": "e2e_approval_record",
+  "generated_at": "2026-09-04T02:11:28+0800",
+  "source": [
+    "evidence/e2e_flow.json（tests/test_e2e_flow.py 2 passed）",
+    "evidence/live_acceptance.json -> e2e_refund_approval_executed_live（live 模式全链路 EXECUTED）"
+  ],
+  "approval_chain": {
+    "thread_id": "7e64833d-37e2-4e3f-890c-ba15cd72200e",
+    "order_id": "ORD-001",
+    "pending_action": "refund",
+    "idempotency_key": "oprefund:TENANT-A:ORD-001:E2E-REFUND",
+    "operation_id": "1faa54da-9689-4235-a6b7-c5fa825b406f",
+    "approval_id": "e29bd6f9-4d12-422f-916c-6d8eb0a9fe80",
+    "approver": "ADMIN-A（租户内 admin；二次确认 confirmation=True）",
+    "decision": {
+      "approved": true,
+      "confirmation": true,
+      "operation_id_match": "1faa54da-9689-4235-a6b7-c5fa825b406f",
+      "decision_status": "executed"
+    }
+  },
+  "execution": {
+    "execution_id": "ff45640d-d1ba-46f4-b58d-a069d44a6dc7",
+    "mode": "shadow",
+    "execution_status": "confirmed",
+    "simulated": true,
+    "external_txn_id": "txn-c929ed6367bb1eeb",
+    "amount": 299.0,
+    "operation_status": "executed"
+  },
+  "lifecycle": [
+    {
+      "step": "create_session",
+      "detail": "201, thread_id=7e64833d-37e2-4e3f-890c-ba15cd72200e"
+    },
+    {
+      "step": "request_refund",
+      "detail": "approval_required(status=pending), approval_id=e29bd6f9-4d12-422f-916c-6d8eb0a9fe80, operation_id=1faa54da-9689-4235-a6b7-c5fa825b406f"
+    },
+    {
+      "step": "approve_refund",
+      "detail": "admin 二次确认通过 -> executed, operation_id=1faa54da-9689-4235-a6b7-c5fa825b406f"
+    },
+    {
+      "step": "query_operation",
+      "detail": "operation.status=executed, execution_status=confirmed, mode=shadow, simulated=True"
+    }
+  ],
+  "graph_no_bypass": {
+    "statement": "三条敏感写 process_refund/process_return/update_return_address 仅经唯一 human_approval interrupt；无 direct->execute_* 边；审批拒绝/未审批/绑定不一致/低档模型均在执行前阻断（见 src/graph/builder.py / approval.py / nodes.py）。",
+    "rejection_not_executed": "test_approval_idempotency.py 16/16 PASS（拒绝绝不执行，未达引擎/外部）。"
+  },
+  "live_e2e_scenario": {
+    "scenario": "e2e_refund_approval_executed_live",
+    "mode": "live",
+    "operation_id": "1cecae82-9fad-47dc-8abe-b334f413d08d",
+    "result": "operation.status=executed",
+    "note": "live 受控执行开关下复现完整审批链：创建会话→发起退款→approval_required→审批通过→EXECUTED。"
+  }
+}

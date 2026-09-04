@@ -300,3 +300,216 @@ def test_build_adapter_respects_execution_mode_setting():
     live = build_adapter(Settings(execution_mode="live", execution_provider="mock"))
     assert live.execution_mode is ExecutionMode.LIVE
     assert live.live_execution_enabled is True
+
+
+# ---------------------------------------------------------------------------
+# ❗超时未确认(overdue) → 强制对账/转人工（confirm_timeout_seconds 语义）
+#   约束：状态机单向封闭、幂等锚点(operation_id/idempotency_key)不变、不加入重试/attempt 到幂等键。
+# ---------------------------------------------------------------------------
+def _submitted_record(s: MemoryStore, op, rid: str, *, submitted_at: float,
+                      external_txn_id: str = "txn-od"):
+    rec = s.create_execution_record(
+        "TENANT-A", operation_id=op.operation_id, pending_action=PendingAction.REFUND,
+        order_id="ORD-001", idempotency_key=op.idempotency_key, mode=ExecutionMode.LIVE,
+        amount=100.0, now=time.time())
+    return s.update_execution_record(
+        "TENANT-A", rec.execution_id, status=ExecutionStatus.SUBMITTED,
+        external_txn_id=external_txn_id, submitted_at=submitted_at)
+
+
+def test_overdue_submitted_is_listed_as_reconciliation_target():
+    s = MemoryStore(); _seed(s)
+    engine = ExecutionEngine(s, mode=ExecutionMode.LIVE,
+                             provider=MockFundsProvider(result="success"),
+                             callback_secret=DEFAULT_CALLBACK_SECRET,
+                             confirm_timeout_seconds=5.0)
+    # 超过确认超时（提交于 10 秒前）→ 应被识别为 overdue。
+    op = _op(s, PendingAction.REFUND, "ORD-001", "REQ-OD1")
+    rec = _submitted_record(s, op, "REQ-OD1", submitted_at=time.time() - 10.0)
+    assert [r.execution_id for r in engine.list_overdue_reconciliation_targets("TENANT-A")] == [rec.execution_id]
+    # 通用对账目标也包含 overdue（overdue 优先，不因 limit 漏掉）。
+    assert rec.execution_id in [r.execution_id for r in engine.list_reconciliation_targets("TENANT-A")]
+
+    # 未超时（刚提交）记录不得进入 overdue 集合，但仍属于通用对账目标。
+    op2 = _op(s, PendingAction.REFUND, "ORD-001", "REQ-OD1b")
+    rec2 = _submitted_record(s, op2, "REQ-OD1b", submitted_at=time.time())
+    assert rec2.execution_id not in [r.execution_id for r in engine.list_overdue_reconciliation_targets("TENANT-A")]
+    assert rec2.execution_id in [r.execution_id for r in engine.list_reconciliation_targets("TENANT-A")]
+
+
+def test_reconcile_overdue_unreachable_goes_human():
+    class BoomProvider:
+        def submit(self, **kw):
+            raise ProviderError("network", "down")
+
+        def query(self, **kw):
+            raise ProviderError("network", "down")
+
+        def compensate(self, **kw):
+            return {"status": "failed", "reason": "down"}
+
+    s = MemoryStore(); _seed(s)
+    engine = ExecutionEngine(s, mode=ExecutionMode.LIVE, provider=BoomProvider(),
+                             callback_secret=DEFAULT_CALLBACK_SECRET, confirm_timeout_seconds=5.0)
+    op = _op(s, PendingAction.REFUND, "ORD-001", "REQ-OD2")
+    rec = _submitted_record(s, op, "REQ-OD2", submitted_at=time.time() - 10.0,
+                            external_txn_id="txn-od2")
+    res = engine.reconcile("TENANT-A")
+    # 超时未确认 + 外部不可达 → mismatch + 转人工（fail-closed，绝不静默当成功）。
+    assert s.get_execution_record("TENANT-A", rec.execution_id).status is ExecutionStatus.MISMATCHED
+    assert s.get_operation("TENANT-A", op.operation_id).status == OperationStatus.HUMAN_HANDOFF
+    assert res.scanned >= 1 and res.mis_matched >= 1
+
+
+def test_reconcile_overdue_unknown_status_goes_human():
+    class UnknownProvider:
+        def submit(self, **kw):
+            return {"external_txn_id": "txn-u", "status": "succeeded"}
+
+        def query(self, **kw):
+            # 外部状态未知/处理中：未明确成功/失败 → 不能当作成功，须 mismatch 转人工。
+            return {"external_txn_id": "txn-u", "status": "processing", "receipt": {}}
+
+        def compensate(self, **kw):
+            return {"status": "succeeded"}
+
+    s = MemoryStore(); _seed(s)
+    engine = ExecutionEngine(s, mode=ExecutionMode.LIVE, provider=UnknownProvider(),
+                             callback_secret=DEFAULT_CALLBACK_SECRET, confirm_timeout_seconds=5.0)
+    op = _op(s, PendingAction.REFUND, "ORD-001", "REQ-OD3")
+    rec = _submitted_record(s, op, "REQ-OD3", submitted_at=time.time() - 10.0,
+                            external_txn_id="txn-u")
+    engine.reconcile("TENANT-A")
+    assert s.get_execution_record("TENANT-A", rec.execution_id).status is ExecutionStatus.MISMATCHED
+    assert s.get_operation("TENANT-A", op.operation_id).status == OperationStatus.HUMAN_HANDOFF
+
+
+def test_reconcile_overdue_external_success_confirms():
+    """overdue 但外部明确成功 → 对账核实后收口 confirmed（不误转人工）。"""
+    s = MemoryStore(); _seed(s)
+    provider = MockFundsProvider(result="success")
+    engine = ExecutionEngine(s, mode=ExecutionMode.LIVE, provider=provider,
+                             callback_secret=DEFAULT_CALLBACK_SECRET, confirm_timeout_seconds=5.0)
+    op = _op(s, PendingAction.REFUND, "ORD-001", "REQ-OD4")
+    rec = _submitted_record(s, op, "REQ-OD4", submitted_at=time.time() - 10.0,
+                            external_txn_id="txn-od4")
+    res = engine.reconcile("TENANT-A")
+    assert s.get_execution_record("TENANT-A", rec.execution_id).status is ExecutionStatus.CONFIRMED
+    assert s.get_operation("TENANT-A", op.operation_id).status == OperationStatus.EXECUTED
+    assert res.scanned >= 1 and res.reconciled >= 1
+
+
+# ---------------------------------------------------------------------------
+# 验收加严：(4) 同一业务操作重复提交只产生一次外部执行（provider.submit 仅调用一次）
+#           (6) 跨租户回调拒绝(404，不泄露存在、不污染原租户记录)
+# ---------------------------------------------------------------------------
+class _CountingProvider:
+    """包装 MockFundsProvider，统计 submit 被外部调用的次数（验证同一操作只提交一次）。"""
+
+    def __init__(self, result: str = "success") -> None:
+        self.submits = 0
+        self._inner = MockFundsProvider(result=result)
+
+    def submit(self, **kw):
+        self.submits += 1
+        return self._inner.submit(**kw)
+
+    def query(self, **kw):
+        return self._inner.query(**kw)
+
+    def compensate(self, **kw):
+        return self._inner.compensate(**kw)
+
+
+def test_live_idempotent_reexecute_calls_provider_once():
+    """(4) 同一业务操作重复提交只产生一次外部执行：同一 operation → 同一 execution_id，
+    provider.submit 仅调用 1 次，执行记录仅 1 条（绝不重复扣款/退款）。"""
+    s = MemoryStore(); _seed(s)
+    provider = _CountingProvider(result="success")
+    ad = EcommerceAdapter(execution_mode=ExecutionMode.LIVE, provider=provider,
+                          callback_secret=DEFAULT_CALLBACK_SECRET)
+    op = _op(s, PendingAction.REFUND, "ORD-001", "REQ-IDEM-LIVE")
+    first = ad.execute_operation(s, "TENANT-A", "USER-001", "customer", op.operation_id)
+    assert first.status is ExecutionStatus.SUBMITTED
+    second = ad.execute_operation(s, "TENANT-A", "USER-001", "customer", op.operation_id)
+    assert second.execution_id == first.execution_id
+    assert "幂等重放" in second.message
+    assert provider.submits == 1  # 外部只提交一次
+    assert len(s.list_execution_records("TENANT-A")) == 1
+
+
+def test_callback_cross_tenant_rejected_404():
+    """(6) 跨租户回调拒绝：载荷 tenant_id=TENANT-B 但 execution_id 属 TENANT-A → HTTP 404，
+    且不篡改原租户执行记录/操作（未确认、未转人工、不泄露存在）。"""
+    s = MemoryStore(); _seed(s)
+    ad = EcommerceAdapter(execution_mode=ExecutionMode.LIVE,
+                          provider=MockFundsProvider(result="success"),
+                          callback_secret=DEFAULT_CALLBACK_SECRET)
+    op = _op(s, PendingAction.REFUND, "ORD-001", "REQ-XT-CB")
+    out = ad.execute_operation(s, "TENANT-A", "USER-001", "customer", op.operation_id)
+    assert out.status is ExecutionStatus.SUBMITTED
+    rec = s.get_execution_record("TENANT-A", out.execution_id)
+    app = create_app(store=s, llm=MockLLM("gpt-4"), seed=False)
+    with TestClient(app) as client:
+        payload = {"tenant_id": "TENANT-B", "execution_id": rec.execution_id,
+                   "external_txn_id": rec.external_txn_id, "status": "succeeded",
+                   "amount": rec.amount, "nonce": "nonce-XT"}
+        sig = build_callback_signature(DEFAULT_CALLBACK_SECRET, payload)
+        r = client.post("/api/callbacks/payment", json=payload, headers={"X-Signature": sig})
+        assert r.status_code == 404
+    # 跨租户回调未生效：原记录仍为 SUBMITTED（未确认、未污染、未转人工）。
+    assert s.get_execution_record("TENANT-A", rec.execution_id).status is ExecutionStatus.SUBMITTED
+    assert s.get_operation("TENANT-A", op.operation_id).status == OperationStatus.EXECUTED
+
+
+# ---------------------------------------------------------------------------
+# (3) 回调超时未确认 → 强制对账/转人工，绝不静默当成功
+#     本用例确定性构造：把执行记录 submitted_at 落定为「过去」 + confirm_timeout_seconds 设小，
+#     不依赖真实等待；对账用「外部未终态(processing)」provider 落定为 mismatch + 转人工。
+#     依赖 core-engineer(t2) 实现 _is_overdue / list_overdue_reconciliation_targets；
+#     若该实现缺失，本用例会因缺方法而失败（不伪造通过）。
+# ---------------------------------------------------------------------------
+class _TimeoutUnknownProvider:
+    """对账时外部始终处于「未终态/处理中」的 provider，用于验证超时未确认绝不静默当成功。"""
+
+    def submit(self, **kw):
+        return {"external_txn_id": "txn-timeout", "status": "succeeded",
+                "receipt": {"external_txn_id": "txn-timeout", "status": "succeeded"}}
+
+    def query(self, **kw):
+        return {"external_txn_id": kw.get("external_txn_id"), "status": "processing", "receipt": {}}
+
+    def compensate(self, **kw):
+        return {"status": "failed", "reason": "processing"}
+
+
+def test_execution_confirm_timeout_unconfirmed_forces_reconcile_human():
+    """验收意图(3)：提交后超过 confirm_timeout_seconds 仍未 confirmed 的执行，必须被识别为
+    overdue 并强制进入对账/转人工（外部未终态 → MISMATCHED + operation=HUMAN_HANDOFF），
+    绝不静默当成功。确定性断言，无真实时间等待。"""
+    s = MemoryStore(); _seed(s)
+    ad = EcommerceAdapter(execution_mode=ExecutionMode.LIVE,
+                          provider=MockFundsProvider(result="success"),
+                          callback_secret=DEFAULT_CALLBACK_SECRET,
+                          confirm_timeout_seconds=5.0)
+    op = _op(s, PendingAction.REFUND, "ORD-001", "REQ-CTO")
+    out = ad.execute_operation(s, "TENANT-A", "USER-001", "customer", op.operation_id)
+    assert out.status is ExecutionStatus.SUBMITTED
+    # 确定性落定 overue：submitted_at = now - (confirm_timeout + 1)，超过确认窗口。
+    s.update_execution_record("TENANT-A", out.execution_id,
+                              submitted_at=time.time() - (5.0 + 1.0))
+    rec = s.get_execution_record("TENANT-A", out.execution_id)
+
+    engine = ad.make_execution_engine(s)  # confirm_timeout_seconds=5.0
+    # 1) 被识别为 overdue（确定性，不真实等待）。
+    overdue_ids = [r.execution_id for r in engine.list_overdue_reconciliation_targets("TENANT-A")]
+    assert rec.execution_id in overdue_ids
+    assert engine._is_overdue(rec) is True
+
+    # 2) 对账收口：超时未确认 + 外部未终态 → MISMATCHED + operation 转人工，绝不静默当成功。
+    eng2 = ExecutionEngine(s, mode=ExecutionMode.LIVE, provider=_TimeoutUnknownProvider(),
+                           callback_secret=DEFAULT_CALLBACK_SECRET, confirm_timeout_seconds=5.0)
+    res = eng2.reconcile("TENANT-A")
+    assert s.get_execution_record("TENANT-A", rec.execution_id).status is ExecutionStatus.MISMATCHED
+    assert s.get_operation("TENANT-A", op.operation_id).status == OperationStatus.HUMAN_HANDOFF
+    assert res.scanned >= 1 and res.mis_matched >= 1

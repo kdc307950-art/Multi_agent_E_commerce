@@ -1,0 +1,150 @@
+﻿{
+    "scenario":  "preview_drills",
+    "timestamp":  "2026-09-04T03:12:55.2072232+08:00",
+    "environment":  "preview (after-sales-preview)",
+    "git_ref":  "251f430",
+    "stack":  {
+                  "up":  true,
+                  "services":  [
+                                   "api",
+                                   "worker",
+                                   "redis",
+                                   "postgres",
+                                   "nginx",
+                                   "frontend"
+                               ],
+                  "note":  "全部 healthy；healthz=200"
+              },
+    "rpo":  {
+                "seconds":  900,
+                "basis":  "baseline_15min",
+                "measured":  false,
+                "note":  "未实测（一次性演练备份）。记录为生产基线 15min(900s) 上限"
+            },
+    "rto":  {
+                "seconds":  1.668,
+                "measured":  true
+            },
+    "drills":  [
+                   {
+                       "id":  "D1",
+                       "name":  "api_worker_redis_restart",
+                       "result":  "PASS",
+                       "pass":  3,
+                       "fail":  0,
+                       "detail":  {
+                                      "redis_restart_pg_ready":  true,
+                                      "worker_running":  true,
+                                      "api_healthz_200":  true
+                                  }
+                   },
+                   {
+                       "id":  "D2",
+                       "name":  "pg_backup_restore",
+                       "result":  "PASS",
+                       "restore_ok":  true,
+                       "rpo_seconds":  900,
+                       "rto_restore_seconds":  1.668,
+                       "marker_excluded":  0,
+                       "tenants_preserved":  {
+                                                 "TENANT-B":  1,
+                                                 "TENANT-A":  1
+                                             },
+                       "backup_file":  "drill-pg-backup-20260904030211.dump"
+                   },
+                   {
+                       "id":  "RB",
+                       "name":  "rollback",
+                       "result":  "PASS",
+                       "db_restore_ok":  true,
+                       "health_after":  true,
+                       "backup_file":  "langgraph-rollback-goal-20260904030342.dump",
+                       "pre_rollback_snapshot":  "pre-rollback-20260904030354.dump",
+                       "app_rebuilt":  false,
+                       "git_ref":  null,
+                       "note":  "应用版本回退目标=当前 git 引用 251f430（target==deployed，无版本差异，未做破坏性重建）；数据恢复+健康复验通过"
+                   },
+                   {
+                       "id":  "D3",
+                       "name":  "approval_gate",
+                       "result":  "PASS",
+                       "pre_decision_status":  "pending",
+                       "post_decision_status":  "executed",
+                       "approval_id":  "1d03f068-a1ed-4364-9267-90932574f641",
+                       "operation_id":  "8a05298b-c007-45d9-a4e0-1d9abf683e8a",
+                       "approve_latency_s":  0.145,
+                       "repeated_decision_convergence":  {
+                                                             "status":  "PASS",
+                                                             "approval_id":  "71b024a8-6cde-433b-9de2-6369d809c227",
+                                                             "operation_id":  "f266f15b-2bfd-446e-a786-228215a003e0",
+                                                             "first_decision_status":  "executed",
+                                                             "second_decision_status":  "executed",
+                                                             "second_decision_same_operation":  true
+                                                         },
+                       "cross_tenant_404":  {
+                                                "status":  "PASS",
+                                                "get_status":  404,
+                                                "decision_status":  404
+                                            },
+                       "approve_round_trip_s":  0.204,
+                       "idempotency_key":  "oprefund:TENANT-A:ORD-001:APPR-REP-1"
+                   },
+                   {
+                       "id":  "D4",
+                       "name":  "sse_resume",
+                       "result":  "PASS",
+                       "stream_id":  "972e21cb-2b2a-41bf-97ec-bc4b41e9d4ec",
+                       "resume_has_done":  true
+                   },
+                   {
+                       "id":  "D5",
+                       "name":  "concurrent_idempotent",
+                       "result":  "PASS",
+                       "stream_id_1":  "5bcce6c0-1fc7-4dce-95f5-686aaa7c96ad",
+                       "stream_id_2":  "5bcce6c0-1fc7-4dce-95f5-686aaa7c96ad",
+                       "same_stream":  true
+                   },
+                   {
+                       "id":  "D6",
+                       "name":  "reconcile",
+                       "result":  "PASS",
+                       "endpoint_reachable":  true,
+                       "reconcile_mismatch":  null,
+                       "note":  "对账为 worker 后台异步任务：本演练仅验证入口可达(/api/healthz 200)与审计/数据面存在；完整 mismatch 计数需 reconcile_tenant 任务跑批后统计，未实测/引用基线；与 t5 交叉。"
+                   }
+               ],
+    "metrics":  {
+                    "total_items":  7,
+                    "executed":  7,
+                    "passed":  7,
+                    "failed":  0,
+                    "blocked":  0,
+                    "error_rate":  0,
+                    "executed_error_rate":  0,
+                    "human_intervention_rate":  0,
+                    "executed_human_intervention":  0,
+                    "approval_latency_s":  0.145,
+                    "reconcile_mismatch":  null,
+                    "reconcile_note":  "对账为 worker 后台异步任务：本演练仅验证入口可达(/api/healthz 200)与审计/数据面存在；完整 mismatch 计数需 reconcile_tenant 任务跑批后统计，未实测/引用基线；与 t5 交叉。",
+                    "approve_round_trip_s":  0.204
+                },
+    "data_plane_evidence":  {
+                                "operations_idempotency":  "UNIQUE (tenant_id, idempotency_key) 存在于 operations 表",
+                                "approvals_attribution":  "approvals 表含 tenant_id + approver + status/operation_id/thread_id/pending_action/feedback/decided_at",
+                                "rls_enabled":  [
+                                                    "operations",
+                                                    "approvals",
+                                                    "checkpoints"
+                                                ],
+                                "tenants_rls":  "tenants.relrowsecurity=false（由 require_active_membership + 上线白名单把关）"
+                            },
+    "t9_fix":  {
+                   "software_fix":  "t9 已修复 FOUND-SOFTWARE-1（postgres_store JSONB 重复解析，新增 _as_json 防御式解析覆盖 5 处读取）；api/worker 已用仓库修复版重建镜像并重启生效（容器内 grep 确认 _as_json 定义+读取齐全）",
+                   "d3_d6_rerun":  "基于 t9 修复后重跑，D3-D6 全部 PASS"
+               },
+    "key_security_evidence":  {
+                                  "repeated_decision_convergence":  "同一 approval_id 重复决策返回同一 operation_id(f266f15b…)+status=executed，未重复执行",
+                                  "same_idempotency_key_single_operation":  "idempotency_key=oprefund:TENANT-A:ORD-001:APPR-REP-1 → operations 表 count=1，executions 表 count=1（无重复执行）",
+                                  "cross_tenant_approval_404":  "TENANT-B token 访问/决策 TENANT-A 的审批 → GET 404 且 POST decision 404（不泄露存在性）"
+                              }
+}

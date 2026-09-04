@@ -26,10 +26,12 @@ log "1. 恢复数据库（从 $BACKUP）"
 compose exec -T postgres pg_restore -U "$DB_USER" --clean --if-exists -d "$DB_NAME" < "$BACKUP"
 
 if [ -n "$REF" ]; then
-  log "2. 重建应用到 git 引用 $REF"
+  log "2. 从干净 worktree 重建应用到 git 引用 $REF"
   compose down
-  git -C "$REPO_ROOT" checkout "$REF" -- . 2>/dev/null || warn "无法检出 $REF（请手工切换并重建）。"
-  compose build --pull
+  # 与 deploy.sh 一致：用该引用的【干净 worktree】构建（build context 仅含该引用下已提交源码），
+  # 绝不从脏工作区/混杂的 git checkout 构建。引用无需先 commit 当前改动，但必须为已提交对象。
+  BUILD_REPRODUCIBLE="待实测"
+  build_from_worktree "$REF"
   compose up -d
 else
   log "2. 未提供 git-ref，跳过应用重建（仅恢复数据）。如需版本回退，传 git-ref。"

@@ -1,0 +1,105 @@
+{
+  "generated_at": "2026-09-03T18:06:07.750762+00:00",
+  "endpoint": "http://127.0.0.1:8001/v1",
+  "model": "self-hosted-model",
+  "runtime_capability": {
+    "self_hosted_model_write_capable": false,
+    "dev_effective_whitelist": [
+      "claude-3-opus",
+      "gpt-4",
+      "gpt-4-turbo",
+      "qwen2.5-max"
+    ],
+    "note": "dev 显式白名单为空 → 回落演示默认白名单，self-hosted-model 不可写（fail-closed）。report.write_op_pass=true 为资格证据，真正可写需部署侧显式配置 HIGH_CONFIDENCE_MODELS=self-hosted-model 且提供报告路径。"
+  },
+  "fallback_paths": [
+    {
+      "trigger": "非白名单模型 refund 发起退款",
+      "detail": "模型 self-hosted-model 不在高置信写白名单（capability_ok=False），写请求被门控拒绝",
+      "outcome": "转人工 / 拒绝写（fail-closed）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "case=writeop-*-nonwhitelist（参数可通过严格校验）+ capability_ok('self-hosted-model')=False (dev 显式白名单为空 → resolve=['claude-3-opus', 'gpt-4', 'gpt-4-turbo', 'qwen2.5-max']) + verify_llm_chain C 项 error code=model_not_in_whitelist / operation_id=null / 无 approval_required"
+    },
+    {
+      "trigger": "非白名单模型 return_request 发起退货",
+      "detail": "模型 self-hosted-model 不在高置信写白名单（capability_ok=False），写请求被门控拒绝",
+      "outcome": "转人工 / 拒绝写（fail-closed）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "case=writeop-*-nonwhitelist（参数可通过严格校验）+ capability_ok('self-hosted-model')=False (dev 显式白名单为空 → resolve=['claude-3-opus', 'gpt-4', 'gpt-4-turbo', 'qwen2.5-max']) + verify_llm_chain C 项 error code=model_not_in_whitelist / operation_id=null / 无 approval_required"
+    },
+    {
+      "trigger": "非白名单模型 return_address 发起改址",
+      "detail": "模型 self-hosted-model 不在高置信写白名单（capability_ok=False），写请求被门控拒绝",
+      "outcome": "转人工 / 拒绝写（fail-closed）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "case=writeop-*-nonwhitelist（参数可通过严格校验）+ capability_ok('self-hosted-model')=False (dev 显式白名单为空 → resolve=['claude-3-opus', 'gpt-4', 'gpt-4-turbo', 'qwen2.5-max']) + verify_llm_chain C 项 error code=model_not_in_whitelist / operation_id=null / 无 approval_required"
+    },
+    {
+      "trigger": "端点不可达/连接失败",
+      "detail": "OpenAICompatibleLLM._chat 连接失败 → 抛 LLMUnavailableError",
+      "outcome": "转人工（不执行）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "probe=unreachable/ConnectError（connectivity 记录）+ case=endpoint-timeout/5xx + verify_llm_chain B 项"
+    },
+    {
+      "trigger": "端点超时（ReadTimeout）",
+      "detail": "请求超过 deadline → 抛 LLMUnavailableError",
+      "outcome": "转人工（不执行）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "probe=timeout/ReadTimeout（connectivity 记录，latency 含退避）+ case=endpoint-timeout"
+    },
+    {
+      "trigger": "端点返回 5xx",
+      "detail": "非可重试或重试耗尽后的服务端错误 → 抛 LLMUnavailableError",
+      "outcome": "转人工（不执行）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "case=endpoint-5xx + verify_llm_chain B 项(MockTransport 503 → LLMUnavailableError)"
+    },
+    {
+      "trigger": "模型输出非法 JSON / 意图值域非法",
+      "detail": "_safe_json / validate_intent_output 抛 LLMOutputError → fail-closed",
+      "outcome": "转人工（不执行）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "probe=invalid_json/_safe_json + invalid_json/validate_intent_output（connectivity 记录）+ case=malicious-bypass(严格校验兜底)"
+    },
+    {
+      "trigger": "低置信度（模糊请求）",
+      "detail": "classify_intent('帮我处理一下嗯') 返回 confidence<0.7 → 节点层 fail-closed 转人工",
+      "outcome": "转人工（不执行）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "case=lowconf-vague（confidence=0.5<0.7）+ probe=low_confidence/vague（connectivity 记录）"
+    },
+    {
+      "trigger": "答案不忠实（幻觉）",
+      "detail": "check_hallucination 判 faithful=false / 或 generate_rag_answer 答案非忠实 → 不通过、fail-closed",
+      "outcome": "转人工（不把未经验证答案作为 RAG-only 输出）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "case=faithfulness-hallucinated（判不忠实）+ evidence/rag_probe_evidence.json 的 pre_fix_result（修复前 generate_rag_answer 返回 '0'，check_hallucination 判 not_supported:0，忠实度缺口）。【修复前观测】该 RAG 解析缺陷已修复并复验通过：post_fix_result generate_rag_answer 返回真实检索内容『自签收之日起 7 天内可申请退货。』（canonical_endpoint_restarted=true）。故本条 trigger 通常发生在「模型输出不忠实答案」时由 check_hallucination 拦截 fail-closed；当前规范端点已无占位符 '0' 问题。"
+    },
+    {
+      "trigger": "恶意输入/提示注入",
+      "detail": "注入越权字段（refund_amount/approve/bypass）被严格 schema 或最小字段校验兜底",
+      "outcome": "拒绝写 / 不执行（安全兜底）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "case=malicious-inject-addr + malicious-bypass（injected 被 fail-closed / 参数最小字段）"
+    },
+    {
+      "trigger": "端点可重试错误重试耗尽",
+      "detail": "503 在 RETRYABLE_STATUS，max_retries 有界重试后仍失败 → 抛 LLMUnavailableError",
+      "outcome": "转人工（不执行）",
+      "operation_id_is_none": true,
+      "approval_none": true,
+      "proof": "probe=retry/503（connectivity 记录，尝试次数=1+max_retries=3）"
+    }
+  ]
+}

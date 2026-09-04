@@ -1,0 +1,331 @@
+{
+  "label": "shadow_acceptance",
+  "summary": {
+    "label": "shadow_acceptance",
+    "execution_mode": "shadow",
+    "generated_at": "2026-09-04T02:02:39+0800",
+    "total_checks": 37,
+    "passed": 37,
+    "failed": 0,
+    "passed_all": true,
+    "note": "业务沙箱 SHADOW 第一轮验收：模拟回执不触真实资金；同一业务操作重复提交仅产生一次外部执行（幂等重放）；退款金额以订单实付为准。"
+  },
+  "scenarios": [
+    {
+      "scenario": "refund_shadow_idempotent",
+      "steps": [
+        {
+          "step": "execute",
+          "assertion": "status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "mode == SHADOW",
+          "expected": "shadow",
+          "actual": "shadow",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "receipt.simulated is True",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "operation.status == EXECUTED",
+          "expected": "executed",
+          "actual": "executed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "execution record status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "execution record receipt.simulated is True",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "new execution record created",
+          "expected": 1,
+          "actual": 1,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "same execution_id",
+          "expected": "ebec9038-60ba-4948-8c6e-bc260fcc4533",
+          "actual": "ebec9038-60ba-4948-8c6e-bc260fcc4533",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "message marks idempotent replay",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "no new execution record",
+          "expected": 1,
+          "actual": 1,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "same execution_id via get_execution_by_operation",
+          "expected": "ebec9038-60ba-4948-8c6e-bc260fcc4533",
+          "actual": "ebec9038-60ba-4948-8c6e-bc260fcc4533",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "refund_amount",
+          "assertion": "receipt.amount == order.total_amount",
+          "expected": 299.0,
+          "actual": 299.0,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "refund_amount",
+          "assertion": "execution record amount == order.total_amount",
+          "expected": 299.0,
+          "actual": 299.0,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "refund_amount",
+          "assertion": "order total_amount is ORD-001 实付",
+          "expected": 299.0,
+          "actual": 299.0,
+          "result": "PASS",
+          "error": null
+        }
+      ]
+    },
+    {
+      "scenario": "return_shadow_idempotent",
+      "steps": [
+        {
+          "step": "execute",
+          "assertion": "status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "mode == SHADOW",
+          "expected": "shadow",
+          "actual": "shadow",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "receipt.simulated is True",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "operation.status == EXECUTED",
+          "expected": "executed",
+          "actual": "executed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "execution record status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "new execution record created",
+          "expected": 2,
+          "actual": 2,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "same execution_id",
+          "expected": "370573d7-e1cb-4a62-90f5-f7b70ea80b5c",
+          "actual": "370573d7-e1cb-4a62-90f5-f7b70ea80b5c",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "message marks idempotent replay",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "no new execution record",
+          "expected": 2,
+          "actual": 2,
+          "result": "PASS",
+          "error": null
+        }
+      ]
+    },
+    {
+      "scenario": "address_change_shadow_idempotent",
+      "steps": [
+        {
+          "step": "execute",
+          "assertion": "status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "mode == SHADOW",
+          "expected": "shadow",
+          "actual": "shadow",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "receipt.simulated is True",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "operation.status == EXECUTED",
+          "expected": "executed",
+          "actual": "executed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "execution record status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "execute",
+          "assertion": "new execution record created",
+          "expected": 3,
+          "actual": 3,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "same execution_id",
+          "expected": "40d0385b-3eba-431e-9bc5-30a83538a488",
+          "actual": "40d0385b-3eba-431e-9bc5-30a83538a488",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "message marks idempotent replay",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "no new execution record",
+          "expected": 3,
+          "actual": 3,
+          "result": "PASS",
+          "error": null
+        }
+      ]
+    },
+    {
+      "scenario": "ownership_access_control",
+      "steps": [
+        {
+          "step": "customer_own_order",
+          "assertion": "USER-002(同租户非归属 customer) 执行 USER-001 订单 → 拒绝",
+          "expected": "rejected",
+          "actual": "AdapterError: 无权访问该订单",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "customer_own_order",
+          "assertion": "order NOT executed",
+          "expected": "pending",
+          "actual": "pending",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "staff_own_tenant",
+          "assertion": "ADMIN-A(本租户 staff) 执行 → CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "cross_tenant",
+          "assertion": "USER-B1(租户B) 执行 租户A 操作 → 拒绝",
+          "expected": "rejected",
+          "actual": "DomainError: 操作不存在",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "cross_tenant",
+          "assertion": "跨租户不新增执行记录",
+          "expected": 4,
+          "actual": 4,
+          "result": "PASS",
+          "error": null
+        }
+      ]
+    }
+  ]
+}

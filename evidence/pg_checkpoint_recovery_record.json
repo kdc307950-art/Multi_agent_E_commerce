@@ -1,0 +1,15 @@
+{
+  "scenario": "TenantScopedCheckpointer restart/cleanup recovery",
+  "checkpoint_written": 1,
+  "recovered_state_value_after_restart": 1,
+  "expected_recovered_value": 1,
+  "cross_tenant_resume_rejected": true,
+  "cross_tenant_reject_code": "cross_tenant_denied",
+  "cleanup_expired_deleted": 1,
+  "cleanup_expired_failed": 0,
+  "cleanup_session_removed": true,
+  "cleanup_scope_removed": true,
+  "conclusion": true,
+  "timestamp": "2026-09-04T02:19:26+0800",
+  "pg_server": "127.0.0.1:55432/langgraph"
+}

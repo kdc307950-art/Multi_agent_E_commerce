@@ -1,0 +1,12 @@
+{
+  "scenario": "D3_D4_D5_D6_api_sse",
+  "result": "PASS",
+  "ok": true,
+  "detail": {
+    "stream_id": "972e21cb-2b2a-41bf-97ec-bc4b41e9d4ec",
+    "resume_has_done": true
+  },
+  "timestamp": "2026-09-03T19:11:54.683679+00:00",
+  "preview_base": "https://127.0.0.1",
+  "note": "需 PREVIEW_TOKEN + 可达 LLM 或 mock 驱动 chat 流；否则为 BLOCKED，非伪造 PASS。"
+}

@@ -140,6 +140,23 @@ def test_eval_runner_marks_mock_write_op_pass():
     assert ev.write_op_pass is True
 
 
+def test_built_llm_restricted_empty_whitelist_no_default_fallback():
+    # 受限环境 + 空白名单：build_llm 构造的实例 capability_ok 必须为 False。
+    # 回归：BaseLLM.__init__ 曾用 `high_confidence_models or DEFAULT_DEV_WRITE_MODELS`，
+    # 空 frozenset() 为 falsy 会被回退成演示默认白名单，导致 gpt-4 等在受限环境被误判可写，
+    # 破坏写操作 fail-closed 边界。修复后空集必须保持为空（capability_ok=False，全部转人工）。
+    from src.llm import build_llm
+    for m in ("gpt-4", "claude-3-opus", "qwen2.5-max"):
+        s = Settings(env="preview", llm_backend="openai_compatible",
+                     llm_base_url="http://127.0.0.1:8001/v1", llm_api_key="sk-local",
+                     llm_model=m, llm_allowed_hosts="127.0.0.1",
+                     llm_eval_report_path="evidence/llm_candidate_eval.json")
+        llm = build_llm(s)
+        assert llm.high_confidence_models == frozenset(), f"{m} 不应回退成演示白名单"
+        assert llm.capability_ok is False, f"{m} 不应在受限环境被误判可写"
+        assert llm.is_write_capable(m) is False
+
+
 # ---------------------------------------------------------------------------
 # 二、网络白名单 + 脱敏日志
 # ---------------------------------------------------------------------------

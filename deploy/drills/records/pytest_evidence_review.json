@@ -1,0 +1,121 @@
+{
+  "scenario": "pytest_evidence_review",
+  "environment": "preview_pg_acceptance",
+  "timestamp": "2026-09-03T18:17:31.059Z",
+  "reviewed_by": "reviewer (pg-acceptance-continue)",
+  "task": "t5-核对全量pytest日志与12个PG测试的证据",
+  "sources": {
+    "full_log": "evidence/pg_acceptance_full.log",
+    "pg_suite_log": "evidence/pg_suite.log",
+    "non_tmp_log": "evidence/pg_acceptance_non_tmp.log",
+    "tests": [
+      "tests/test_pg_store.py",
+      "tests/test_pg_rls.py",
+      "tests/test_pg_checkpoint_recovery.py"
+    ],
+    "conftest": "tests/conftest.py",
+    "pg_helpers": "tests/pg_helpers.py",
+    "hardening": "tests/test_hardening_acceptance.py",
+    "report": "evidence/PG_ACCEPTANCE_REPORT.md"
+  },
+  "postgres_tests": {
+    "total": 12,
+    "per_file": {
+      "test_pg_store": {
+        "expected": 5,
+        "marker_lines": [
+          17,
+          35,
+          46,
+          61,
+          69
+        ],
+        "tests": [
+          "test_persists_across_store_rebuild",
+          "test_idempotency_across_connections",
+          "test_cross_tenant_scoped_404",
+          "test_suspended_tenant_blocks",
+          "test_checkpoint_scope_created_atomically_with_session"
+        ]
+      },
+      "test_pg_rls": {
+        "expected": 4,
+        "marker_lines": [
+          24,
+          33,
+          44,
+          56
+        ],
+        "tests": [
+          "test_rls_zero_visible_without_tenant",
+          "test_rls_cross_tenant_zero_visible",
+          "test_rls_cross_tenant_zero_write",
+          "test_checkpoint_tables_scoped_by_thread_scope"
+        ]
+      },
+      "test_pg_checkpoint_recovery": {
+        "expected": 3,
+        "marker_lines": [
+          61,
+          81,
+          95
+        ],
+        "tests": [
+          "test_minimal_checkpoint_survives_restart",
+          "test_cross_tenant_checkpoint_resume_rejected",
+          "test_cleanup_expired_scopes_deletes_checkpoint_first"
+        ]
+      }
+    },
+    "confirmed_passed_not_skipped": true,
+    "evidence": "evidence/pg_suite.log -> '======================== 12 passed, 1 warning in 8.14s ========================'; all 12 node-ids listed PASSED; corroborated by evidence/pg_acceptance_evidence.json (conclusion=true) and evidence/pg_checkpoint_recovery_record.json (conclusion=true)"
+  },
+  "skip": {
+    "unique_skip": "tests/test_hardening_acceptance.py::test_crewai_real_call_chain_integration",
+    "marker": "@pytest.mark.skipif(True, reason='本环境未安装 crewai；真实调用链在具备 crewai 的环境用集成测试验证')",
+    "line": 384,
+    "confirmed": true
+  },
+  "conftest_pg_engine": {
+    "skip_condition": "仅当 DATABASE_URL 缺席（或连接失败）时跳过",
+    "verified": true,
+    "detail": "conftest.pg_engine -> make_pg_engine()；pg_helpers.make_pg_engine() 在 pg_dsn()（os.environ.get('DATABASE_URL','')）为空时返回 None；engine为None时 pytest.skip('PostgreSQL 不可用：设置 DATABASE_URL...')。本次12个PG测试全部执行并通过，说明本次已提供 DATABASE_URL。",
+    "databas_url_provided_this_run": true
+  },
+  "full_suite_count_analysis": {
+    "non_pg_suite": {
+      "passed": 176,
+      "skipped": 1,
+      "source": "evidence/pg_acceptance_non_tmp.log -> '176 passed, 1 skipped in 17.45s' (non-postgres 标记，排除 tmp_path SQLite 后端文件)"
+    },
+    "pg_suite": {
+      "passed": 12,
+      "source": "evidence/pg_suite.log"
+    },
+    "aggregate_total": {
+      "passed": 188,
+      "skipped": 1,
+      "tests": 189,
+      "note": "176 + 12 = 188 passed, 1 skipped；为两个干净日志的聚合值"
+    }
+  },
+  "discrepancy_about_full_log": {
+    "claim_in_task": "evidence/pg_acceptance_full.log 显示 '188 passed, 1 skipped'",
+    "what_the_file_actually_shows": [
+      "无任何 '188 passed, 1 skipped' 汇总行（pytest 总行未打印）。",
+      "终行进度 '[100%]' 含 11 个 'E'（errors）字符与 34 个 '.' 字符——存在真实测试 error。",
+      "运行在 pytest_sessionfinish 阶段因 PermissionError: [WinError 5] 拒绝访问。 清理 basetemp '_acceptance_tmp' 崩溃（cleanup_dead_symlinks -> os.listdir）。",
+      "该 run 实际包含 test_sqlite_store.py / test_recovery.py（SQLite 后端 tmp_path 依赖）；按 evidence/PG_ACCEPTANCE_REPORT.md §3.3，这些用例因 DSH 文件沙箱对目录枚举/点前缀临时目录的拒绝而报 PermissionError（WinError 5），属环境限制而非代码/数据面失败。"
+    ],
+    "verdict": "evidence/pg_acceptance_full.log 并不能直接证明 '188 passed, 1 skipped'；该数字只在聚合 evidence/pg_acceptance_non_tmp.log(176) + evidence/pg_suite.log(12) 时成立。"
+  },
+  "conclusion": {
+    "verdict": "CONFIRMED_WITH_CAVEAT",
+    "postgres_12_tests_all_passed": true,
+    "unique_skip_is_crewai_skipif_true": true,
+    "conftest_skips_only_when_databas_url_absent": true,
+    "literal_188_passed_1_skipped_in_full_log": false,
+    "summary_188_is_aggregation_of_two_clean_logs": true
+  },
+  "read_only": "未修改任何源码；仅新增本审查记录文件。"
+}

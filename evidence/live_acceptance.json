@@ -1,0 +1,393 @@
+{
+  "label": "live_acceptance",
+  "summary": {
+    "label": "live_acceptance",
+    "execution_mode": "live",
+    "generated_at": "2026-09-04T02:09:24+0800",
+    "total_checks": 41,
+    "passed": 41,
+    "failed": 0,
+    "passed_all": true,
+    "note": "业务沙箱 LIVE 受控执行开关验收：合法回调确认、回调重放只重放不重复、金额异常转人工、外部失败补偿(COMPENSATED)、超时未确认对账收口/转人工；另含 live 无 provider fail-closed 与端到端审批→EXECUTED。",
+    "dependency_note": "船长独立核验基线：test_execution_engine.py=18 passed(含4个overdue超时用例)；test_approval_idempotency.py=16 passed(含审批拒绝绝不执行、幂等决策只执行一次)；shadow 验收 evidence/shadow_acceptance.json=37/37。t2 超时未确认→对账/转人工实现已标记 completed，confirm_timeout_seconds 生效逻辑（list_overdue_reconciliation_targets / reconcile overdue 优先）在本验收 L5/L6 实际驱动；t3 回调验签/幂等/超时/拒绝执行测试已标记 completed。因此本 LIVE 验收对已确认的单元层结论仅做复核标注（见每场景 implementation_status/cross_check），重点产出 live 端到端流程证据（e2e_refund_approval_executed_live）；覆盖全部 5 项核心步骤，均基于已就绪实现，无需推迟。"
+  },
+  "scenarios": [
+    {
+      "scenario": "live_valid_callback_and_replay",
+      "steps": [
+        {
+          "step": "submit",
+          "assertion": "status == SUBMITTED",
+          "expected": "submitted",
+          "actual": "submitted",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "submit",
+          "assertion": "external_txn_id present",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "submit",
+          "assertion": "execution record status == SUBMITTED",
+          "expected": "submitted",
+          "actual": "submitted",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "submit",
+          "assertion": "execution record external_txn_id present",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "callback_confirm",
+          "assertion": "applied is True",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "callback_confirm",
+          "assertion": "status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "callback_confirm",
+          "assertion": "operation.status == EXECUTED",
+          "expected": "executed",
+          "actual": "executed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "callback_confirm",
+          "assertion": "execution record status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "applied is False",
+          "expected": false,
+          "actual": false,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "reason == replay",
+          "expected": "replay",
+          "actual": "replay",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "execution record remains CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "replay",
+          "assertion": "no new execution record",
+          "expected": 1,
+          "actual": 1,
+          "result": "PASS",
+          "error": null
+        }
+      ],
+      "implementation_status": "unit_confirmed (callbacks/HMAC/幂等重放：test_execution_engine.py) + live 复核",
+      "cross_check": "合法回调确认 + 同 nonce 重放只重放不重复（live 提交→回调→确认；终态封闭防重复扣款）"
+    },
+    {
+      "scenario": "live_callback_amount_mismatch_human",
+      "steps": [
+        {
+          "step": "amount_mismatch",
+          "assertion": "applied is False",
+          "expected": false,
+          "actual": false,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "amount_mismatch",
+          "assertion": "reason == amount_mismatch",
+          "expected": "amount_mismatch",
+          "actual": "amount_mismatch",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "amount_mismatch",
+          "assertion": "execution record status == MISMATCHED",
+          "expected": "mismatched",
+          "actual": "mismatched",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "amount_mismatch",
+          "assertion": "operation.status == HUMAN_HANDOFF",
+          "expected": "human_handoff",
+          "actual": "human_handoff",
+          "result": "PASS",
+          "error": null
+        }
+      ],
+      "implementation_status": "unit_confirmed (test_callback_amount_mismatch_goes_human) + live 复核",
+      "cross_check": "回调金额与执行记录不一致 → MISMATCHED + 操作 HUMAN_HANDOFF"
+    },
+    {
+      "scenario": "live_external_failure_compensated",
+      "steps": [
+        {
+          "step": "compensate",
+          "assertion": "status == COMPENSATED",
+          "expected": "compensated",
+          "actual": "compensated",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "compensate",
+          "assertion": "compensation_status == compensated",
+          "expected": "compensated",
+          "actual": "compensated",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "compensate",
+          "assertion": "operation.status == EXECUTED",
+          "expected": "executed",
+          "actual": "executed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "compensate",
+          "assertion": "receipt provides reversal",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        }
+      ],
+      "implementation_status": "unit_confirmed (test_live_failure_compensated) + live 复核",
+      "cross_check": "外部明确失败 → 补偿回滚 COMPENSATED"
+    },
+    {
+      "scenario": "live_timeout_unconfirmed_reconcile_confirm",
+      "steps": [
+        {
+          "step": "submit",
+          "assertion": "status == SUBMITTED",
+          "expected": "submitted",
+          "actual": "submitted",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "reconcile_timeout",
+          "assertion": "overdue record scanned",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "reconcile_timeout",
+          "assertion": "reconciled >= 1",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "reconcile_timeout",
+          "assertion": "execution record status == CONFIRMED",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "reconcile_timeout",
+          "assertion": "operation.status == EXECUTED",
+          "expected": "executed",
+          "actual": "executed",
+          "result": "PASS",
+          "error": null
+        }
+      ],
+      "implementation_status": "unit_confirmed (overdue 超时用例) + live 复核",
+      "cross_check": "提交后超时未确认 + 外部可达且成功 → 对账收口 CONFIRMED"
+    },
+    {
+      "scenario": "live_timeout_unconfirmed_unreachable_human",
+      "steps": [
+        {
+          "step": "submit",
+          "assertion": "status == SUBMITTED",
+          "expected": "submitted",
+          "actual": "submitted",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "reconcile_timeout",
+          "assertion": "overdue record scanned",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "reconcile_timeout",
+          "assertion": "mismatch >= 1",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "reconcile_timeout",
+          "assertion": "execution record status == MISMATCHED",
+          "expected": "mismatched",
+          "actual": "mismatched",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "reconcile_timeout",
+          "assertion": "operation.status == HUMAN_HANDOFF",
+          "expected": "human_handoff",
+          "actual": "human_handoff",
+          "result": "PASS",
+          "error": null
+        }
+      ],
+      "implementation_status": "unit_confirmed (overdue 超时用例) + live 复核",
+      "cross_check": "提交后超时未确认 + 外部不可达 → MISMATCHED + 操作 HUMAN_HANDOFF"
+    },
+    {
+      "scenario": "live_without_provider_fail_closed",
+      "steps": [
+        {
+          "step": "no_provider",
+          "assertion": "live 无 provider → fail-closed 拒绝",
+          "expected": "rejected",
+          "actual": "DomainError: live 执行模式必须配置 FundsProvider（受控执行开关未开启）。",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "no_provider",
+          "assertion": "operation NOT executed",
+          "expected": "pending",
+          "actual": "pending",
+          "result": "PASS",
+          "error": null
+        }
+      ],
+      "implementation_status": "unit_confirmed (test_live_execution_requires_provider) + live 复核",
+      "cross_check": "live 无 provider → fail-closed 拒绝（受控执行开关未开启）"
+    },
+    {
+      "scenario": "e2e_refund_approval_executed_live",
+      "steps": [
+        {
+          "step": "create_session",
+          "assertion": "session created (201)",
+          "expected": 201,
+          "actual": 201,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "create_session",
+          "assertion": "thread_id present",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "request_refund",
+          "assertion": "approval_required event emitted",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "request_refund",
+          "assertion": "approval status == pending",
+          "expected": "pending",
+          "actual": "pending",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "request_refund",
+          "assertion": "approval_id present",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "request_refund",
+          "assertion": "operation_id present",
+          "expected": true,
+          "actual": true,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "approve",
+          "assertion": "decision http 200",
+          "expected": 200,
+          "actual": 200,
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "approve",
+          "assertion": "decision operation_id matches",
+          "expected": "1cecae82-9fad-47dc-8abe-b334f413d08d",
+          "actual": "1cecae82-9fad-47dc-8abe-b334f413d08d",
+          "result": "PASS",
+          "error": null
+        },
+        {
+          "step": "query_operation",
+          "assertion": "operation.status == EXECUTED",
+          "expected": "executed",
+          "actual": "executed",
+          "result": "PASS",
+          "error": null
+        }
+      ],
+      "implementation_status": "live 端到端流程证据（本验收重点，超出单元层）",
+      "cross_check": "创建会话→发起退款→approval_required→审批通过→操作 EXECUTED（live 模式全链路）"
+    }
+  ]
+}

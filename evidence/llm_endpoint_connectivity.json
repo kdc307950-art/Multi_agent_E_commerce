@@ -1,0 +1,143 @@
+{
+  "generated_at": "2026-09-03T18:06:07.735344+00:00",
+  "endpoint": "http://127.0.0.1:8001/v1",
+  "model": "self-hosted-model",
+  "backend": "openai_compatible",
+  "network_policy": "EndpointGuard：allowed_hosts=127.0.0.1,localhost（自托管内网），非白名单拒绝。",
+  "records": [
+    {
+      "probe": "GET /v1/models",
+      "ok": true,
+      "latency_ms": 656.27,
+      "result": {
+        "status_code": 200,
+        "data": {
+          "object": "list",
+          "data": [
+            {
+              "id": "self-hosted-model",
+              "object": "model",
+              "owned_by": "self-hosted"
+            }
+          ]
+        }
+      },
+      "error": null,
+      "failure_closed": false,
+      "notes": "真实可用性探测"
+    },
+    {
+      "probe": "chat/classify_intent",
+      "ok": true,
+      "latency_ms": 2.61,
+      "result": {
+        "intent": "refund",
+        "confidence": 0.92,
+        "order_id": "ORD-001"
+      },
+      "error": null,
+      "failure_closed": false,
+      "notes": "真实 POST /v1/chat/completions，意图分流"
+    },
+    {
+      "probe": "chat/extract_tool_params",
+      "ok": true,
+      "latency_ms": 1.53,
+      "result": {
+        "order_id": "ORD-001",
+        "reason": "我要退款，订单号 ORD-001"
+      },
+      "error": null,
+      "failure_closed": false,
+      "notes": "真实 POST，参数提取（严格 schema 由节点再校验）"
+    },
+    {
+      "probe": "chat/check_hallucination",
+      "ok": true,
+      "latency_ms": 1.15,
+      "result": {
+        "faithful": true,
+        "issues": []
+      },
+      "error": null,
+      "failure_closed": false,
+      "notes": "真实 POST，幻觉检测（忠实答案 → faithful=true）"
+    },
+    {
+      "probe": "chat/rewrite_query",
+      "ok": true,
+      "latency_ms": 0.85,
+      "result": "退货政策是什么？",
+      "error": null,
+      "failure_closed": false,
+      "notes": "真实 POST，查询改写"
+    },
+    {
+      "probe": "chat/generate_rag_answer",
+      "ok": true,
+      "latency_ms": 1.11,
+      "result": "0",
+      "error": null,
+      "failure_closed": false,
+      "notes": "真实 POST（修复前观测）。返回 '0' 命中 self_hosted_server._route RAG 解析缺陷（详见 evidence/rag_probe_evidence.json）。该缺陷已修复并复验通过：修复后 generate_rag_answer 返回真实内容『自签收之日起 7 天内可申请退货。』（rag_probe_evidence.json fix/post_fix_result）；规范端点 127.0.0.1:8001 已重启加载修复后代码，真实 RAG 答案链现已达标。"
+    },
+    {
+      "probe": "low_confidence/vague",
+      "ok": true,
+      "latency_ms": 1.3,
+      "result": {
+        "intent": "other",
+        "confidence": 0.5,
+        "order_id": null
+      },
+      "error": null,
+      "failure_closed": false,
+      "notes": "confidence 应 <0.7，节点层 fail-closed 转人工"
+    },
+    {
+      "probe": "timeout/ReadTimeout",
+      "ok": true,
+      "latency_ms": 1512.59,
+      "result": "LLMUnavailableError 抛出",
+      "error": null,
+      "failure_closed": true,
+      "notes": "超时注入，应抛 LLMUnavailableError"
+    },
+    {
+      "probe": "retry/503",
+      "ok": true,
+      "latency_ms": null,
+      "result": "503 共尝试 3 次（max_retries=2 → 1+2=3），最终抛 LLMUnavailableError",
+      "error": null,
+      "failure_closed": true,
+      "notes": "RETRYABLE_STATUS(503) 有界重试后 fail-closed 转人工"
+    },
+    {
+      "probe": "invalid_json/_safe_json",
+      "ok": true,
+      "latency_ms": 0.01,
+      "result": "LLMOutputError",
+      "error": null,
+      "failure_closed": true,
+      "notes": "非 JSON 输出应抛 LLMOutputError（fail-closed 转人工）"
+    },
+    {
+      "probe": "invalid_json/validate_intent_output",
+      "ok": true,
+      "latency_ms": 0.11,
+      "result": "LLMOutputError",
+      "error": null,
+      "failure_closed": true,
+      "notes": "意图值域非法应抛 LLMOutputError（strict 拒绝）"
+    },
+    {
+      "probe": "unreachable/ConnectError",
+      "ok": true,
+      "latency_ms": 531.96,
+      "result": "LLMUnavailableError 抛出",
+      "error": null,
+      "failure_closed": true,
+      "notes": "不可达端点（连接失败）应抛 LLMUnavailableError → fail-closed"
+    }
+  ]
+}

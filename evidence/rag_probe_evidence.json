@@ -1,0 +1,31 @@
+{
+  "probe": "RAG generate_rag_answer — docs with no doc_id",
+  "endpoint": "http://127.0.0.1:8001/v1",
+  "model": "self-hosted-model",
+  "backend": "openai_compatible",
+  "query": "退货政策是什么？",
+  "docs": [{"content": "自签收之日起 7 天内可申请退货。"}],
+  "context_sent_to_endpoint": "[0] 自签收之日起 7 天内可申请退货。",
+  "pre_fix_result": {
+    "generate_rag_answer_returned": "0",
+    "is_empty": false,
+    "contains_expected_text": false,
+    "check_hallucination_on_returned_answer": {"faithful": false, "issues": ["not_supported: 0"]},
+    "verdict": "FAIL — 返回的是下标占位符 0，而非原文；非空但错误，未包含预期台词。"
+  },
+  "root_cause": "src/llm/self_hosted_server.py::_route RAG 分支的 docs 解析错误：openai_compatible.generate_rag_answer 用 doc_id 兜底为 enumerate 下标拼成 '[0] <content>'，而 _route 先对 docs_text 按 ']' 切分得到 ['[0', ' 自签收之日起 7 天内可申请退货。']，对含 '[' 的块执行 chunk.split('[',1)[-1].split(']',1)[-1] 取到的只是 id '0'，真正的 content 落在无 '[' 的下一块而被跳过，最终 docs=[{'content':'0'}]，Mock 输出 '0'。",
+  "fix": {
+    "file": "src/llm/self_hosted_server.py",
+    "change": "RAG 分支改为按文档行用 re.match(r'\\[[^\\]]*\\]\\s*(.*)', line.strip(), re.S) 提取 '] ' 后的真实内容（而非按 ']' 切分后取到 id），并新增 import re。",
+    "verified_by": "队长（captain）实现并验证：单测 _route + 起新 8002 端点用 OpenAICompatibleLLM 端到端复验",
+    "post_fix_result": {
+      "route_raw": "自签收之日起 7 天内可申请退货。\n退款将在 5 个工作日内原路退回。",
+      "e2e_answer": "自签收之日起 7 天内可申请退货。",
+      "nonempty": true,
+      "contains_expected_text": true,
+      "verdict": "PASS — generate_rag_answer 返回真实检索内容；修复后复验通过。"
+    },
+    "canonical_endpoint_restarted": true
+  },
+  "implication": "报告 faithfulness_pass=true 只验证了 check_hallucination 的判别力（它正确把 '0' 判定为不忠实），并未验证 generate_rag_answer 的真实答案是否忠实/非空。已定位真实缺陷并修复复验通过；现 127.0.0.1:8001 规范端点已加载修复后代码，generate_rag_answer 返回真实政策内容，真实模型链路的 RAG 忠实度达标（见 evidence/llm_fallback_to_human.json 与 LLM_ENDPOINT_EVAL_REPORT.md）。"
+}

@@ -1,0 +1,14 @@
+{
+  "scenario": "D3_D4_D5_D6_api_approval",
+  "result": "PASS",
+  "ok": true,
+  "detail": {
+    "pre_decision_status": "pending",
+    "post_decision_status": "executed",
+    "approval_id": "1d03f068-a1ed-4364-9267-90932574f641",
+    "operation_id": "8a05298b-c007-45d9-a4e0-1d9abf683e8a"
+  },
+  "timestamp": "2026-09-03T19:11:44.848911+00:00",
+  "preview_base": "https://127.0.0.1",
+  "note": "需 PREVIEW_TOKEN + 可达 LLM 或 mock 驱动 chat 流；否则为 BLOCKED，非伪造 PASS。"
+}

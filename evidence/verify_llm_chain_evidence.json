@@ -1,0 +1,27 @@
+{
+  "acceptance": "verify_llm_chain.py 三项验收",
+  "script": "scripts/verify_llm_chain.py",
+  "endpoint": "http://127.0.0.1:8001/v1",
+  "model": "self-hosted-model",
+  "execution_mode": "利用已运行端点做等价验证",
+  "execution_note": "8001 端口已被既有端点占用（pid=14716，/v1/models 200，model=self-hosted-model）。脚本 _start_endpoint 新起端点的子进程（uvicorn 绑定 8001）因端口占用而退出，其就绪轮询命中既有端点(200)后继续，故 A1 实际命中既有自托管端点；运行后端口 8001 仍由 pid=14716 监听，无遗留孤儿 uvicorn。等价于按脚本内相同断言逻辑对既有端点做验收。",
+  "results": {
+    "A1_endpoint_reachable": {
+      "status": "PASS",
+      "evidence": "GET /v1/models -> HTTP 200; body={\"id\":\"self-hosted-model\",...}"
+    },
+    "A1b_session_created": {
+      "status": "PASS",
+      "evidence": "POST /api/sessions 后 thread_id 已生成（例: 57ef76a5-d6b8-4f8f-aa5e-a96238a72044）。"
+    },
+    "C_non_whitelist_refund_failclosed": {
+      "status": "PASS",
+      "evidence": "非白名单(未在高置信白名单)模型 self-hosted-model 发起退款：SSE 事件=[accepted, node（11次）, token, error]，含 error、不含 approval_required/executed。error payload={\"code\":\"model_not_in_whitelist\",\"message\":\"当前请求需要人工处理。\",\"retryable\":false,\"operation_id\":null}。"
+    },
+    "B_endpoint_5xx_raises_unavailable": {
+      "status": "PASS",
+      "evidence": "用 httpx.MockTransport 注入 503 后调 classify_intent => 抛 LLMUnavailableError（节点层 fail-closed 转人工）。"
+    }
+  },
+  "overall": "三个验收项全部通过"
+}

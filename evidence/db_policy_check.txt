@@ -1,0 +1,314 @@
+DB POLICY CHECK  2026-09-04T02:19:49+0800
+server=127.0.0.1:55432  db=langgraph  connected_as=migrator  public_tables=38
+
+## ALL public tables RLS status
+  agent_events                   enabled=False forced=False
+  agent_runs                     enabled=False forced=False
+  agent_schema_version           enabled=False forced=False
+  agent_thread_activity          enabled=False forced=False
+  approvals                      enabled=True forced=True
+  audit                          enabled=True forced=True
+  checkpoint_blobs               enabled=True forced=True
+  checkpoint_migrations          enabled=False forced=False
+  checkpoint_thread_scopes       enabled=True forced=True
+  checkpoint_writes              enabled=True forced=True
+  checkpoints                    enabled=True forced=True
+  executions                     enabled=True forced=True
+  inbound_events                 enabled=False forced=False
+  it_assets                      enabled=False forced=False
+  knowledge_chunks               enabled=False forced=False
+  knowledge_documents            enabled=False forced=False
+  memberships                    enabled=True forced=True
+  operations                     enabled=True forced=True
+  outbox_events                  enabled=False forced=False
+  routing_rules                  enabled=False forced=False
+  satisfaction_surveys           enabled=False forced=False
+  sessions                       enabled=True forced=True
+  sla_policies                   enabled=False forced=False
+  store                          enabled=False forced=False
+  store_migrations               enabled=False forced=False
+  stream_events                  enabled=True forced=True
+  streams                        enabled=True forced=True
+  support_members                enabled=False forced=False
+  support_schedules              enabled=False forced=False
+  support_teams                  enabled=False forced=False
+  tenant_it_policies             enabled=False forced=False
+  tenants                        enabled=False forced=False
+  ticket_assignments             enabled=False forced=False
+  ticket_messages                enabled=False forced=False
+  ticket_sla                     enabled=False forced=False
+  ticket_status_events           enabled=False forced=False
+  ticket_workflow_runs           enabled=False forced=False
+  tickets                        enabled=False forced=False
+
+## Core data-plane RLS enabled/forced (13 named tables)
+  approvals                    enabled=True forced=True
+  audit                        enabled=True forced=True
+  checkpoint_blobs             enabled=True forced=True
+  checkpoint_thread_scopes     enabled=True forced=True
+  checkpoint_writes            enabled=True forced=True
+  checkpoints                  enabled=True forced=True
+  executions                   enabled=True forced=True
+  memberships                  enabled=True forced=True
+  operations                   enabled=True forced=True
+  sessions                     enabled=True forced=True
+  stream_events                enabled=True forced=True
+  streams                      enabled=True forced=True
+  tenants                      enabled=False forced=False
+
+## Non-tenant public tables WITHOUT RLS (count=25)
+  agent_events
+  agent_runs
+  agent_schema_version
+  agent_thread_activity
+  checkpoint_migrations
+  inbound_events
+  it_assets
+  knowledge_chunks
+  knowledge_documents
+  outbox_events
+  routing_rules
+  satisfaction_surveys
+  sla_policies
+  store
+  store_migrations
+  support_members
+  support_schedules
+  support_teams
+  tenant_it_policies
+  ticket_assignments
+  ticket_messages
+  ticket_sla
+  ticket_status_events
+  ticket_workflow_runs
+  tickets
+
+## Policies (pg_policies)
+  approvals                    approvals_tenant_scope               roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+  audit                        audit_tenant_scope                   roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+  checkpoint_blobs             checkpoint_blobs_tenant_scope        roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : checkpoint_thread_in_current_tenant(thread_id)
+        with_check : checkpoint_thread_in_current_tenant(thread_id)
+  checkpoint_thread_scopes     checkpoint_thread_scopes_tenant_scope roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+  checkpoint_writes            checkpoint_writes_tenant_scope       roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : checkpoint_thread_in_current_tenant(thread_id)
+        with_check : checkpoint_thread_in_current_tenant(thread_id)
+  checkpoints                  checkpoints_tenant_scope             roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : checkpoint_thread_in_current_tenant(thread_id)
+        with_check : checkpoint_thread_in_current_tenant(thread_id)
+  executions                   executions_tenant_scope              roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+  memberships                  memberships_tenant_scope             roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+  operations                   operations_tenant_scope              roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+  sessions                     sessions_tenant_scope                roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+  stream_events                stream_events_tenant_scope           roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+  streams                      streams_tenant_scope                 roles=['public'] cmd=ALL permissive=PERMISSIVE
+        qual       : (tenant_id = app_current_tenant_id())
+        with_check : (tenant_id = app_current_tenant_id())
+
+## Roles (migrator/app_runtime)
+  app_runtime  super=False bypassrls=False inherit=False createrole=False createdb=False canlogin=True
+  migrator     super=True bypassrls=False inherit=True createrole=False createdb=False canlogin=True
+
+## Table owners (core tables)
+  approvals                    owner=migrator
+  audit                        owner=migrator
+  checkpoint_blobs             owner=migrator
+  checkpoint_thread_scopes     owner=migrator
+  checkpoint_writes            owner=migrator
+  checkpoints                  owner=migrator
+  executions                   owner=migrator
+  memberships                  owner=migrator
+  operations                   owner=migrator
+  sessions                     owner=migrator
+  stream_events                owner=migrator
+  streams                      owner=migrator
+  tenants                      owner=migrator
+
+## app_runtime schema usage grants
+  public               -> USAGE (app_runtime)
+  public               -> USAGE (app_runtime)
+  public               -> USAGE (app_runtime)
+
+## app_runtime table grants (public, count=152)
+  agent_events                   DELETE
+  agent_events                   INSERT
+  agent_events                   SELECT
+  agent_events                   UPDATE
+  agent_runs                     DELETE
+  agent_runs                     INSERT
+  agent_runs                     SELECT
+  agent_runs                     UPDATE
+  agent_schema_version           DELETE
+  agent_schema_version           INSERT
+  agent_schema_version           SELECT
+  agent_schema_version           UPDATE
+  agent_thread_activity          DELETE
+  agent_thread_activity          INSERT
+  agent_thread_activity          SELECT
+  agent_thread_activity          UPDATE
+  approvals                      DELETE
+  approvals                      INSERT
+  approvals                      SELECT
+  approvals                      UPDATE
+  audit                          DELETE
+  audit                          INSERT
+  audit                          SELECT
+  audit                          UPDATE
+  checkpoint_blobs               DELETE
+  checkpoint_blobs               INSERT
+  checkpoint_blobs               SELECT
+  checkpoint_blobs               UPDATE
+  checkpoint_migrations          DELETE
+  checkpoint_migrations          INSERT
+  checkpoint_migrations          SELECT
+  checkpoint_migrations          UPDATE
+  checkpoint_thread_scopes       DELETE
+  checkpoint_thread_scopes       INSERT
+  checkpoint_thread_scopes       SELECT
+  checkpoint_thread_scopes       UPDATE
+  checkpoint_writes              DELETE
+  checkpoint_writes              INSERT
+  checkpoint_writes              SELECT
+  checkpoint_writes              UPDATE
+  checkpoints                    DELETE
+  checkpoints                    INSERT
+  checkpoints                    SELECT
+  checkpoints                    UPDATE
+  executions                     DELETE
+  executions                     INSERT
+  executions                     SELECT
+  executions                     UPDATE
+  inbound_events                 DELETE
+  inbound_events                 INSERT
+  inbound_events                 SELECT
+  inbound_events                 UPDATE
+  it_assets                      DELETE
+  it_assets                      INSERT
+  it_assets                      SELECT
+  it_assets                      UPDATE
+  knowledge_chunks               DELETE
+  knowledge_chunks               INSERT
+  knowledge_chunks               SELECT
+  knowledge_chunks               UPDATE
+  knowledge_documents            DELETE
+  knowledge_documents            INSERT
+  knowledge_documents            SELECT
+  knowledge_documents            UPDATE
+  memberships                    DELETE
+  memberships                    INSERT
+  memberships                    SELECT
+  memberships                    UPDATE
+  operations                     DELETE
+  operations                     INSERT
+  operations                     SELECT
+  operations                     UPDATE
+  outbox_events                  DELETE
+  outbox_events                  INSERT
+  outbox_events                  SELECT
+  outbox_events                  UPDATE
+  routing_rules                  DELETE
+  routing_rules                  INSERT
+  routing_rules                  SELECT
+  routing_rules                  UPDATE
+  satisfaction_surveys           DELETE
+  satisfaction_surveys           INSERT
+  satisfaction_surveys           SELECT
+  satisfaction_surveys           UPDATE
+  sessions                       DELETE
+  sessions                       INSERT
+  sessions                       SELECT
+  sessions                       UPDATE
+  sla_policies                   DELETE
+  sla_policies                   INSERT
+  sla_policies                   SELECT
+  sla_policies                   UPDATE
+  store                          DELETE
+  store                          INSERT
+  store                          SELECT
+  store                          UPDATE
+  store_migrations               DELETE
+  store_migrations               INSERT
+  store_migrations               SELECT
+  store_migrations               UPDATE
+  stream_events                  DELETE
+  stream_events                  INSERT
+  stream_events                  SELECT
+  stream_events                  UPDATE
+  streams                        DELETE
+  streams                        INSERT
+  streams                        SELECT
+  streams                        UPDATE
+  support_members                DELETE
+  support_members                INSERT
+  support_members                SELECT
+  support_members                UPDATE
+  support_schedules              DELETE
+  support_schedules              INSERT
+  support_schedules              SELECT
+  support_schedules              UPDATE
+  support_teams                  DELETE
+  support_teams                  INSERT
+  support_teams                  SELECT
+  support_teams                  UPDATE
+  tenant_it_policies             DELETE
+  tenant_it_policies             INSERT
+  tenant_it_policies             SELECT
+  tenant_it_policies             UPDATE
+  tenants                        DELETE
+  tenants                        INSERT
+  tenants                        SELECT
+  tenants                        UPDATE
+  ticket_assignments             DELETE
+  ticket_assignments             INSERT
+  ticket_assignments             SELECT
+  ticket_assignments             UPDATE
+  ticket_messages                DELETE
+  ticket_messages                INSERT
+  ticket_messages                SELECT
+  ticket_messages                UPDATE
+  ticket_sla                     DELETE
+  ticket_sla                     INSERT
+  ticket_sla                     SELECT
+  ticket_sla                     UPDATE
+  ticket_status_events           DELETE
+  ticket_status_events           INSERT
+  ticket_status_events           SELECT
+  ticket_status_events           UPDATE
+  ticket_workflow_runs           DELETE
+  ticket_workflow_runs           INSERT
+  ticket_workflow_runs           SELECT
+  ticket_workflow_runs           UPDATE
+  tickets                        DELETE
+  tickets                        INSERT
+  tickets                        SELECT
+  tickets                        UPDATE
+
+## app_runtime routine/function grants (public)
+  app_current_tenant_id                    EXECUTE
+  checkpoint_thread_in_current_tenant      EXECUTE
+
+## Scope functions
+  app_current_tenant_id() owner=migrator acl=['=X/migrator', 'migrator=X/migrator', 'app_runtime=X/migrator']
+  checkpoint_thread_in_current_tenant(candidate_thread_id text) owner=migrator acl=['=X/migrator', 'migrator=X/migrator', 'app_runtime=X/migrator']
+
+## checks={"all_non_tenant_tables_rls_enabled_and_forced": true, "tenants_not_rls": true, "app_runtime_not_superuser_and_not_bypassrls": true, "scope_functions_present": true, "all_non_tenant_public_tables_rls": false}
+conclusion=True
+
+## note
+Core data-plane RLS verified clean: the 12 non-tenant core tables (PostgresStore + TenantScopedCheckpointer) are ENABLE+FORCE RLS; tenants (platform) intentionally not RLS. However, full-schema enumeration found 25 other non-tenant public tables WITHOUT RLS: agent_events, agent_runs, agent_schema_version, agent_thread_activity, checkpoint_migrations, inbound_events, it_assets, knowledge_chunks, knowledge_documents, outbox_events, routing_rules, satisfaction_surveys, sla_policies, store, store_migrations, support_members, support_schedules, support_teams, tenant_it_policies, ticket_assignments, ticket_messages, ticket_sla, ticket_status_events, ticket_workflow_runs, tickets. Whether these are app-layer-scoped (design) or a gap requires reviewer judgment; this task is read-only data collection and made no schema changes.

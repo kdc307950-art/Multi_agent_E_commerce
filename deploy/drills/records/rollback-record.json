@@ -1,0 +1,11 @@
+﻿{
+    "scenario":  "preview_rollback",
+    "backup_file":  "langgraph-rollback-goal-20260904030342.dump",
+    "pre_rollback_snapshot":  "pre-rollback-20260904030354.dump",
+    "git_ref":  null,
+    "app_rebuilt":  false,
+    "db_restore_ok":  true,
+    "health_after":  true,
+    "db_name":  "langgraph",
+    "timestamp":  "2026-09-04T03:03:58.6442967+08:00"
+}

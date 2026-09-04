@@ -1,0 +1,155 @@
+# Prometheus 告警规则（模板骨架）
+# ============================================================================
+# 定位：运营告警规则的**可编辑模板**。首次配置时请根据真实指标/口径校准阈值与 `for`。
+# 纪律（与 src/observability/metrics.py 一致）：**标签必须是有界维度**，绝不用高基数/敏感维度
+# （tenant_id/user_id/thread_id/order_id/operation_id/approval_id/client_request_id/...）做标签；
+# 租户明细走受控审计/聚合查询，不作 Prometheus 标签。
+#
+# 使用方式：
+#   1) 在 deploy/observability/prometheus.yml 加 rule_files 引用本文件（见 alert-rules-README.md）。
+#   2) 挂载到 prometheus 容器（docker-compose.observability.yml 增加卷 + command 指定 rules 路径）。
+#   3) 校准阈值（当前值为**初稿占位**，须以真实演练/实测为准，禁止虚报达标）。
+#
+# 接口：本文件随 Prometheus 规则语法；缺省 `for` 为 0（立即告警），建议生产给敏感告警留 `for`。
+# 【重要】当前指标缺口（待指标增强，见 alert-rules-README.md 缺口清单）：
+#   - api_requests_total 当前仅有 (route,method) 标签，缺 `status`；错误率需新增 status 维度。
+#   - approval_decisions_total 仅 (route)，缺 status/reason；审批失败率需新增维度。
+#   - 对账 mismatch、人工介入率、RPO/RTO 突破**尚无 Prometheus 指标**（基于日志/审计/演练记录）。
+#   - postgres/redis/worker 未配置独立 scrape target，组件 down 目前只能基于 api 抓取健康间接推断。
+# 未增强前，依赖上述缺口的规则表达式为空（不会误报），README 已逐条标注"现状为空"。
+# ============================================================================
+
+groups:
+  # ---- 组件存活 / 抓取健康（可直接用，基于 Prometheus 自动生成的 up 指标）----
+  - name: after-sales-component-health
+    rules:
+      - alert: ApiJobDown
+        expr: up{job="api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api
+          env: preview
+        annotations:
+          summary: "API 抓取失败（job=api）"
+          description: "Prometheus 无法抓取 /api/metrics（api:8000）。API 疑似 down 或不可达。值班按 OPS_RUNBOOK §4 处理。"
+
+      - alert: PrometheusJobDown
+        expr: up{job="prometheus"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: prometheus
+          env: preview
+        annotations:
+          summary: "Prometheus 自身 down"
+          description: "job=prometheus 抓取失败，观测链路可能中断。"
+
+      - alert: LokiJobDown
+        expr: up{job="loki"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: loki
+          env: preview
+        annotations:
+          summary: "Loki 抓取失败"
+          description: "日志存储链路可能中断，值班核对 promtail/loki。"
+
+  # ---- 应用指标：错误率（需 status 维度，当前为空 → 不误报）----
+  - name: after-sales-api-error-rate
+    rules:
+      - alert: ApiHighErrorRate
+        # 5xx 占比 > 5%（占位阈值，须校准）。需要 api_requests_total 带有 status 标签。
+        expr: |
+          sum(rate(api_requests_total{route!=""}[5m])) by (route, method)
+            > 0
+          and
+          sum(rate(api_requests_total{status=~"5.."}[5m])) by (route, method)
+            / clamp_min(sum(rate(api_requests_total{route!=""}[5m])) by (route, method), 0.001) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+          env: preview
+        annotations:
+          summary: "API 错误率（5xx）上升：route={{ $labels.route }}"
+          description: "5xx 占 5 分钟请求比超过 5%。核对 Langfuse trace / Loki 日志 / 审计。当前指标缺 status 维度，若表达式为空，请先增强 api_requests_total 标签。"
+
+  # ---- 审批失败率（当前无 status 维度，表达式为空 → 不误报）----
+  - name: after-sales-approval
+    rules:
+      - alert: ApprovalFailureRateHigh
+        # 审批决策失败占比 > 5%（占位）。需要 approval_decisions_total 带 status/reason 标签。
+        # 也可退化为用日志/审计计数。
+        expr: |
+          sum(rate(approval_decisions_total{status=~"failed|rejected|error"}[5m]))
+            / clamp_min(sum(rate(approval_decisions_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          component: approval
+          env: preview
+        annotations:
+          summary: "审批决策失败率上升"
+          description: "审批失败/拒绝/异常占比超过 5%。核对 approval 审计（GET /api/audit?target_type=approval）。当前指标缺状态维度为空，需先增强 approval_decisions_total 标签。"
+
+  # ---- 对账 mismatch（当前无指标，表达式为空）----
+  - name: after-sales-reconcile
+    rules:
+      - alert: ReconciliationMismatch
+        # 对账不一致计数（非终态收口 / 不一致转人工）。
+        expr: reconcile_mismatch_total > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: reconcile
+          env: preview
+        annotations:
+          summary: "对账出现 mismatch"
+          description: "检测到对账不一致（reconcile_mismatch_total>0）。按 OPS_RUNBOOK：不一致/不可核实 → 转人工，绝不静默。当前无此指标（需要新增 counter 'reconcile_mismatch_total'），表达式为空。"
+
+  # ---- 人工介入率（当前无指标，表达式为空）----
+  - name: after-sales-human-intervention
+    rules:
+      - alert: HighHumanInterventionRate
+        # 转人工 / 升级占比 > 阈值（占位 0.20）。
+        expr: |
+          sum(rate(human_intervention_total[5m]))
+            / clamp_min(sum(rate(api_requests_total{route!=""}[5m])), 0.001) > 0.20
+        for: 15m
+        labels:
+          severity: warning
+          component: escalation
+          env: preview
+        annotations:
+          summary: "人工介入率上升"
+          description: "转人工/升级占比超过 20%。可能为模型档位不足、检索不过、金额/资格异常。检查 capability / RAG / 写操作门控。当前需新增 counter 'human_intervention_total'。"
+
+  # ---- RPO / RTO 突破（当前无原生指标，基于演练记录/外部 push）----
+  - name: after-sales-rpo-rto
+    rules:
+      - alert: RpoExceeded
+        # 计划：由备份恢复演练或受控脚本 push 一个 gauge：drill_rpo_seconds{component="pg_backup"}。
+        # 阈值 RPO ≤ 15min = 900s。
+        expr: drill_rpo_seconds{component="pg_backup"} > 900
+        for: 1m
+        labels:
+          severity: critical
+          component: backup
+          env: preview
+        annotations:
+          summary: "RPO 超阈值（>15min）"
+          description: "实测 RPO 超过 900s。按 OPS_RUNBOOK §3 视为超基线，评估回滚。当前无此指标（需 push 或从记录外链），表达式为空。"
+
+      - alert: RtoExceeded
+        # 阈值 RTO ≤ 60min = 3600s。
+        expr: drill_rto_seconds{component="pg_backup"} > 3600
+        for: 1m
+        labels:
+          severity: critical
+          component: backup
+          env: preview
+        annotations:
+          summary: "RTO 超阈值（>60min）"
+          description: "实测 RTO 超过 3600s。按 OPS_RUNBOOK §3 视为超基线，评估回滚。当前无此指标，表达式为空。"

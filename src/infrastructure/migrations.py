@@ -374,8 +374,9 @@ def apply_runtime_role(engine: "Engine", password: str | None = None) -> None:
     with engine.begin() as conn:
         conn.execute(text(APP_RUNTIME_ROLE_SQL))
         if password:
-            conn.execute(text(
-                f"ALTER ROLE {APP_RUNTIME_ROLE} PASSWORD :pwd"), {"pwd": password})
+            # PostgreSQL DDL (ALTER ROLE ... PASSWORD) 不接受绑定参数，需转义后以字面量执行。
+            escaped = password.replace("'", "''")
+            conn.execute(text(f"ALTER ROLE {APP_RUNTIME_ROLE} PASSWORD '{escaped}'"))
         conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {APP_RUNTIME_ROLE}"))
         conn.execute(text(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {APP_RUNTIME_ROLE}"))

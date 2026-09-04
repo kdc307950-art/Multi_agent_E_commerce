@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
@@ -40,7 +41,7 @@ OLD_SECRET = "rotated-secret-key-00"
 _SENSITIVE_KEYS_SANITY = ("password", "credential", "secret", "token", "authorization",
                           "address", "payment", "card")
 
-# 各测试用户使用的登录凭据明文（仅在测试内构造 sha256 表，绝不写入审计）。
+# 各测试用户使用的登录凭据明文（仅在测试内构造 PHC 哈希表——默认 argon2id，绝不写入审计）。
 _PASSWORDS = {
     "TENANT-A:USER-001": "cred-user-a1",
     "TENANT-A:USER-002": "cred-user-a2",
@@ -55,11 +56,17 @@ _PASSWORDS = {
 }
 
 
+@functools.lru_cache(maxsize=1)
 def _creds_json() -> str:
-    return json.dumps({k: hashlib.sha256(v.encode()).hexdigest() for k, v in _PASSWORDS.items()})
+    # 生成 argon2id PHC 哈希表（与 config 默认 auth_credential_hash=argon2id 对齐）。
+    from argon2 import PasswordHasher
+
+    hasher = PasswordHasher()
+    return json.dumps({k: hasher.hash(v) for k, v in _PASSWORDS.items()})
 
 
-def _real_settings(rotated: str = "", ttl: int = 3600, auth_kid: str = "") -> Settings:
+def _real_settings(rotated: str = "", ttl: int = 3600, auth_kid: str = "",
+                   credential_hash: str = "argon2id") -> Settings:
     return Settings(
         env="preview",
         auth_backend="real",
@@ -69,8 +76,17 @@ def _real_settings(rotated: str = "", ttl: int = 3600, auth_kid: str = "") -> Se
         auth_jwt_ttl_seconds=ttl,
         auth_jwt_kid=auth_kid,
         auth_jwt_rotated_secrets=rotated,
-        auth_login_credentials=_creds_json(),
+        auth_login_credentials=_creds_json() if credential_hash == "argon2id" else _creds_bcrypt_json(),
+        auth_credential_hash=credential_hash,
     )
+
+
+@functools.lru_cache(maxsize=1)
+def _creds_bcrypt_json() -> str:
+    import bcrypt
+
+    return json.dumps({k: bcrypt.hashpw(v.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+                       for k, v in _PASSWORDS.items()})
 
 
 @pytest.fixture

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -96,13 +97,12 @@ def _route(engine: MockLLM, text: str) -> str:
     # RAG 生成
     if "仅依据以下检索到的政策资料" in text:
         q = text.split("用户问题：", 1)[-1].strip()
-        docs_text = text.split("资料：", 1)[-1].split("用户问题：", 1)[0].strip()
+        docs_text = text.split("资料：", 1)[-1].split("用户问题：", 1)[0]
         docs = []
-        for chunk in docs_text.split("]"):
-            if "[" in chunk:
-                content = chunk.split("[", 1)[-1].split("]", 1)[-1].strip()
-                if content:
-                    docs.append({"content": content})
+        for line in docs_text.split("\n"):
+            m = re.match(r"\[[^\]]*\]\s*(.*)", line.strip(), re.S)
+            if m and m.group(1).strip():
+                docs.append({"content": m.group(1).strip()})
         return engine.generate_rag_answer(q, docs)
     # 最终回复
     return engine.generate_final_response({"intent": "order", "order_id": "ORD-001"},

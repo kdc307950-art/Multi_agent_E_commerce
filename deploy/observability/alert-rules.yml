@@ -1,0 +1,190 @@
+# Prometheus 告警规则（正式交付 · 最终版）
+# ============================================================================
+# 挂载：deploy/observability/prometheus.yml 的 rule_files 指向 /etc/prometheus/alert-rules.yml，
+#       故本文件为"权威规则"，经 docker-compose.observability.yml 的 prometheus 服务挂载到该路径。
+# 口径纪律（与 src/observability/metrics.py::_FORBIDDEN_LABELS 一致）：标签用**有界维度**（route/status/kind/node/job/component），
+#       绝不用高基数/敏感维度（tenant_id/user_id/thread_id/order_id/operation_id/approval_id/client_request_id/...）。
+#       租户明细走受控审计查询（GET /api/audit），不入 Prometheus 标签。
+# 真实指标名（来自 src/observability/metrics.py 与 src/api/routes.py，未编造）：
+#   - api_requests_total{route,method}      (counter)
+#   - approval_decisions_total{route}       (counter)
+#   - audit_queries_total{route}            (counter)
+#   - Prometheus 自动生成：up{job=...}
+# 现状：组件存活(up)类规则**可立即生效**；其余规则因其依赖的指标/标签**尚无**（见各注解），表达式为空，不会误报，但也暂不告警。
+#       需先在 src/observability/metrics.py + src/api/routes.py 增加对应（有界标签的）指标，规则才会真正告警。
+# ============================================================================
+
+groups:
+  # ---- 组件存活 / 抓取健康（可立即生效）----
+  - name: after-sales-component-health
+    rules:
+      - alert: ApiJobDown
+        expr: up{job="api"} == 0
+        for: 1m
+        labels: {severity: critical, component: api, env: preview}
+        annotations:
+          summary: "API 抓取失败（job=api）"
+          description: "Prometheus 抓不到 /api/metrics（api:8000）。API down 或不可达；值班按 OPS_RUNBOOK §4 处理。"
+
+      - alert: PrometheusJobDown
+        expr: up{job="prometheus"} == 0
+        for: 2m
+        labels: {severity: warning, component: prometheus, env: preview}
+        annotations:
+          summary: "Prometheus 自身 down"
+          description: "观测链路中断。检查 prometheus 容器。"
+
+      - alert: LokiJobDown
+        expr: up{job="loki"} == 0
+        for: 2m
+        labels: {severity: warning, component: loki, env: preview}
+        annotations:
+          summary: "Loki 抓取失败"
+          description: "日志存储链路可能中断；核对 promtail/loki。"
+
+  # ---- 登录暴力破解 / 认证风险（依赖 src/api/routes.py 的 login_rate_limited_total 计数器，可生效）----
+  # 指标：login_rate_limited_total{reason}（counter，reason ∈ login_rate_limited|ip_rate_limited|login_backoff）。
+  # 标签有界（reason），无 tenant_id/user_id/ip（IP 明细走受控审计查询，不入 Prometheus 标签）。
+  - name: after-sales-login-security
+    rules:
+      - alert: LoginBruteForceAttempts
+        expr: sum(rate(login_rate_limited_total[5m])) > 0.5
+        for: 1m
+        labels: {severity: critical, component: login, env: preview}
+        annotations:
+          summary: "登录被限流次数上升（疑似暴力破解）"
+          description: "5 分钟内登录被限流（login_rate_limited_total）速率 > 0.5 次/秒。按 OPS_RUNBOOK §4：疑似爆破，检查来源 IP / 账号尝试，必要时临时收紧限流或锁定来源；IP/账号明细走 GET /api/audit 或 Loki（含 PII 脱敏）。"
+
+  # ---- 组件重启（restart）：需新增有界指标，当前为空 ----
+  - name: after-sales-component-restart
+    rules:
+      - alert: ComponentRestartDetected
+        # 计划：新增 counter component_restart_total{component=~"api|worker|redis|postgres|nginx"}，在编排层重启处 inc。
+        # 现状：无此指标 → 表达式为空，不误报（也不告警）。
+        expr: increase(component_restart_total[5m]) > 0
+        for: 1m
+        labels: {severity: warning, kind: restart, env: preview}
+        annotations:
+          summary: "组件发生重启：{{ $labels.component }}"
+          description: "检测到 api/worker/redis/postgres/nginx 重启事件；核对重启韧性（数据面不依赖 Redis、读接口恢复）。需新增 component_restart_total 指标。"
+
+  # ---- 错误率（需 status 标签，当前为空）----
+  - name: after-sales-api-error-rate
+    rules:
+      - alert: ApiHighErrorRate
+        # 计划：给 api_requests_total 增加 label_names=("route","method","status")，在响应处按 status 记录。
+        # 现状：仅有 (route,method)，无 status → 表达式为空，不误报。
+        expr: |
+          sum(rate(api_requests_total{status=~"5.."}[5m])) by (route, method)
+            / clamp_min(sum(rate(api_requests_total[5m])) by (route, method), 0.001) > 0.05
+        for: 5m
+        labels: {severity: critical, component: api, status: "5xx", env: preview}
+        annotations:
+          summary: "API 5xx 错误率上升：route={{ $labels.route }} method={{ $labels.method }}"
+          description: "5xx 占 5 分钟请求比例 > 5%。核对 Langfuse trace/Loki/审计。当前 api_requests_total 缺 status 标签，需指标增强。"
+
+  # ---- 审批失败率（需 status/reason 标签，当前为空）----
+  - name: after-sales-approval
+    rules:
+      - alert: ApprovalFailureRateHigh
+        # 计划：给 approval_decisions_total 增加 label_names=("route","status")，status ∈ {approved|rejected|error|timeout}。
+        # 现状：仅有 (route) → 表达式为空。
+        expr: |
+          sum(rate(approval_decisions_total{status=~"rejected|error|timeout"}[5m]))
+            / clamp_min(sum(rate(approval_decisions_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels: {severity: critical, component: approval, env: preview}
+        annotations:
+          summary: "审批决策失败率上升"
+          description: "审批拒绝/异常/超时占比 > 5%。核对 GET /api/audit?target_type=approval。需 approval_decisions_total 增加 status 标签。"
+
+      - alert: ApprovalLatencyHigh
+        # 计划：新增 histogram approval_decision_latency_seconds；p95 超阈值告警。当前无此指标。
+        expr: histogram_quantile(0.95, sum(rate(approval_decision_latency_seconds_bucket[10m])) by (le)) > 30
+        for: 10m
+        labels: {severity: warning, component: approval, env: preview}
+        annotations:
+          summary: "审批耗时偏高（p95 > 30s）"
+          description: "审批决策延迟 p95 超阈值。需新增 approval_decision_latency_seconds 直方图。"
+
+  # ---- 对账 mismatch（需新指标，当前为空）----
+  - name: after-sales-reconcile
+    rules:
+      - alert: ReconciliationMismatch
+        # 计划：新增 counter reconcile_mismatch_total{kind}, 在对账不一致/不可核实处 inc（非终态收口→转人工）。
+        # 现状：无此指标 → 表达式为空。
+        expr: reconcile_mismatch_total > 0
+        for: 5m
+        labels: {severity: warning, kind: reconcile, env: preview}
+        annotations:
+          summary: "对账出现 mismatch"
+          description: "对账不一致（reconcile_mismatch_total>0）。按 OPS_RUNBOOK：不一致/不可核实→转人工，绝不静默。需新增 reconcile_mismatch_total。"
+
+      - alert: NoReconciliation
+        # 计划：对账任务长期未运行（如对账仅在夜间 cron）。当前无此指标。
+        expr: time() - reconcile_last_run_timestamp_seconds > 86400
+        for: 30m
+        labels: {severity: warning, kind: reconcile, env: preview}
+        annotations:
+          summary: "对账任务超 24h 未运行"
+          description: "无对账执行痕迹。需新增 reconcile_last_run_timestamp_seconds gauge（或外链 cron 任务记录）。当前为空。"
+
+  # ---- 人工介入率（需新指标 label=kind，当前为空）----
+  - name: after-sales-human-intervention
+    rules:
+      - alert: HighHumanInterventionRate
+        # 计划：新增 counter human_intervention_total{kind=~"escalate|manual_review|fallback|deny"}，在转人工/升级路径 inc。
+        # 现状：无此指标 → 表达式为空。
+        expr: |
+          sum(rate(human_intervention_total[5m]))
+            / clamp_min(sum(rate(api_requests_total[5m])), 0.001) > 0.20
+        for: 15m
+        labels: {severity: warning, kind: escalation, env: preview}
+        annotations:
+          summary: "人工介入率上升"
+          description: "转人工/升级占比 > 20%。可能为模型档位不足/检索不过/金额或资格异常。检查 capability/RAG/写操作门控。需新增 human_intervention_total。"
+
+  # ---- RPO / RTO 突破（需新 gauge，当前为空）----
+  - name: after-sales-rpo-rto
+    rules:
+      - alert: RpoExceeded
+        # 计划：备份恢复演练/受控脚本写入 gauge drill_rpo_seconds{component="pg_backup"}（RPO≤15min=900s）。
+        # 现状：无此指标 → 表达式为空。
+        expr: drill_rpo_seconds{component="pg_backup"} > 900
+        for: 1m
+        labels: {severity: critical, component: backup, env: preview}
+        annotations:
+          summary: "RPO 超阈值（>15min）"
+          description: "实测 RPO 超 900s。按 OPS_RUNBOOK §3 视为超基线，评估回滚。需从演练/脚本写入 drill_rpo_seconds（当前为空）。"
+
+      - alert: RtoExceeded
+        # RTO≤60min=3600s。
+        expr: drill_rto_seconds{component="pg_backup"} > 3600
+        for: 1m
+        labels: {severity: critical, component: backup, env: preview}
+        annotations:
+          summary: "RTO 超阈值（>60min）"
+          description: "实测 RTO 超 3600s。按 OPS_RUNBOOK §3 视为超基线。需写入 drill_rto_seconds（当前为空）。"
+
+  # ---- 租户拒绝事件（需新指标 label=kind，当前为空）----
+  - name: after-sales-tenant-security
+    rules:
+      - alert: TenantDenialSpike
+        # 计划：新增 counter security_denials_total{kind=~"cross_tenant|forbidden|no_confirmation|unauthorized_write|not_whitelist_model"}，
+        #       在 audit_security_denial / 401/403/404/422 拒绝路径 inc。仅按 kind 计，绝不含 tenant_id。
+        # 现状：无此指标 → 表达式为空（当前可用 GET /api/audit / Loki 日志人工交叉，但无 Prometheus 告警）。
+        expr: increase(security_denials_total[5m]) > 5
+        for: 5m
+        labels: {severity: warning, kind: security, env: preview}
+        annotations:
+          summary: "租户/安全拒绝事件激增（kind={{ $labels.kind }}）"
+          description: "5 分钟内安全拒绝（跨租户/越权/缺二次确认/未白名单写等）> 5 次。核对审计：GET /api/audit?target_type=... 四维追溯。需新增 security_denials_total（当前为空）。"
+
+      - alert: CrossTenantAccessDetected
+        # 跨租户访问：最高优先级，属合规红线。
+        expr: increase(security_denials_total{kind="cross_tenant"}[5m]) > 0
+        for: 1m
+        labels: {severity: critical, kind: security, env: preview}
+        annotations:
+          summary: "检测到跨租户访问拒绝"
+          description: "出现跨租户访问拒绝事件。按 OPS_RUNBOOK §4：越权/跨租户走 platform_admin 独立流程 + 二次确认 + 不可抵赖审计。需新增 security_denials_total{kind=cross_tenant}（当前为空）。"

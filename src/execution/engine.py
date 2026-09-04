@@ -361,19 +361,67 @@ class ExecutionEngine:
     # ------------------------------------------------------------------
     # 对账任务
     # ------------------------------------------------------------------
+    def _is_overdue(self, record: ExecutionRecord, now: float | None = None) -> bool:
+        """判断一笔已提交(submitted)执行是否超过确认超时窗口（confirm_timeout_seconds）。
+
+        仅对「已提交但尚未确认」的 submitted 记录判定；submitted_at 缺失（提交时刻未知，
+        见 D6 演练人为置为 submitted）不算 overdue——此类记录交由通用对账兜底，不在此误判。
+        超时未确认 → true，供对账/转人工强制收口，绝不静默当成功。
+        """
+        if record.status is not ExecutionStatus.SUBMITTED:
+            return False
+        if record.submitted_at is None:
+            return False
+        now = now if now is not None else _now()
+        return now - record.submitted_at > self.confirm_timeout_seconds
+
+    def list_overdue_reconciliation_targets(self, tenant_id: str, limit: int = 200) -> list[ExecutionRecord]:
+        """返回「已提交但超过 confirm_timeout_seconds 仍未确认」的 overdue 执行记录。
+
+        该类记录是超时未确认的高风险项：必须强制进入对账（查询外部真实状态）或转人工，
+        绝不允许停留在 submitted 被当作成功。所有查询以 tenant_id 强制作用域。
+        """
+        if not tenant_id:
+            raise DomainError(ErrorCode.FORBIDDEN, "缺少租户作用域", 400)
+        return [r for r in self.store.list_execution_records(tenant_id)
+                if self._is_overdue(r)][:limit]
+
     def list_reconciliation_targets(self, tenant_id: str, limit: int = 200) -> list[ExecutionRecord]:
-        """返回该租户需要对账的非终态/异常执行记录（submitted / failed_uncertain / reconciling）。"""
+        """返回该租户需要对账的非终态/异常执行记录（submitted / failed_uncertain / reconciling）。
+
+        依据 confirm_timeout_seconds 语义：把「提交后超过确认超时仍未确认」的 overdue 记录
+        优先返回，确保超时未确认的执行一定进入对账/转人工（即使受 limit 截断也只可能丢弃
+        尚未超时的记录，绝不丢弃 overdue）。其余非终态/异常记录维持在既有对账范围。
+        """
+        if not tenant_id:
+            raise DomainError(ErrorCode.FORBIDDEN, "缺少租户作用域", 400)
         wanted = {ExecutionStatus.SUBMITTED.value, ExecutionStatus.FAILED_UNCERTAIN.value,
                   ExecutionStatus.RECONCILING.value, ExecutionStatus.FAILED_DISPATCHED.value}
-        return [r for r in self.store.list_execution_records(tenant_id)
-                if r.status.value in wanted][:limit]
+        records = self.store.list_execution_records(tenant_id)
+        overdue = [r for r in records if self._is_overdue(r)]
+        others = [r for r in records if r.status.value in wanted and not self._is_overdue(r)]
+        # overdue 优先：limit 截断时默认丢弃尚未超时记录，绝不让超时未确认记录被漏掉。
+        return (overdue + others)[:limit]
 
     def reconcile(self, tenant_id: str) -> ReconciliationResult:
         """对账：查询外部真实状态并收口，杜绝「内部认为已提交/未知但实际已扣款/退款」。
 
-        冲突或外部不可达 → mismatch → 转人工，保留完整执行记录与审计，绝不静默。
+        - 通用对账目标（overdue 优先）已接入 confirm_timeout_seconds；
+        - 超时未确认(overdue)记录额外强制并入（不因 limit 漏掉），确保对这类记录执行
+          query 外部核实；
+        - 冲突或外部不可达/状态未知 → mismatch → 转人工；外部明确失败 → 补偿，
+          补偿失败 → 转人工。保留完整执行记录与审计，绝不静默当成功。
         """
-        targets = self.list_reconciliation_targets(tenant_id)
+        targets, seen = [], set()
+        for rec in self.list_reconciliation_targets(tenant_id):
+            if rec.execution_id not in seen:
+                seen.add(rec.execution_id)
+                targets.append(rec)
+        # 超时未确认记录强制并入：无论通用列表是否受 limit 影响，都进入对账/转人工。
+        for rec in self.list_overdue_reconciliation_targets(tenant_id, limit=5000):
+            if rec.execution_id not in seen:
+                seen.add(rec.execution_id)
+                targets.append(rec)
         scanned, reconciled, mis_matched, handoff = len(targets), 0, 0, 0
         details: list[dict] = []
         for record in targets:
@@ -390,37 +438,46 @@ class ExecutionEngine:
                                     details=details)
 
     def _reconcile_one(self, tenant_id: str, record: ExecutionRecord) -> tuple[str, str]:
-        """对账单条记录：返回 (outcome, detail)。outcome ∈ {confirmed, mismatch, human_handoff}。"""
+        """对账单条记录：返回 (outcome, detail)。outcome ∈ {confirmed, mismatch, human_handoff}。
+
+        对 overdue（提交后超过 confirm_timeout_seconds 仍未确认）记录在 detail 中显式标注，
+        确保超时未确认可被追踪；无论是否 overdue，查询失败/外部状态未知一律走 mismatch 转人工，
+        外部明确失败走补偿（补偿失败转人工），绝不静默当成功。
+        """
+        overdue = self._is_overdue(record)
+        tag = "overdue_" if overdue else ""
         if record.external_txn_id is None:
-            self._reconcile_mismatch(record, "missing_external_txn_id")
-            return "mismatch", "missing_external_txn_id"
+            self._reconcile_mismatch(record, tag + "missing_external_txn_id")
+            return "mismatch", tag + "missing_external_txn_id"
         if self.provider is None:
-            self._reconcile_mismatch(record, "provider_not_configured")
-            return "mismatch", "provider_not_configured"
+            self._reconcile_mismatch(record, tag + "provider_not_configured")
+            return "mismatch", tag + "provider_not_configured"
         try:
             ext = self.provider.query(tenant_id=tenant_id, external_txn_id=record.external_txn_id)
         except ProviderError as exc:
-            self._reconcile_mismatch(record, f"query_failed:{exc.code}")
-            return "mismatch", f"query_failed:{exc.code}"
+            self._reconcile_mismatch(record, f"{tag}query_failed:{exc.code}")
+            return "mismatch", f"{tag}query_failed:{exc.code}"
         ext_status = ext.get("status")
         if ext_status in ("succeeded", "success"):
             if not can_transition(record.status, ExecutionStatus.CONFIRMED):
-                self._reconcile_mismatch(record, "already_terminal_confirmed")
-                return "mismatch", "already_terminal_confirmed"
+                self._reconcile_mismatch(record, tag + "already_terminal_confirmed")
+                return "mismatch", tag + "already_terminal_confirmed"
             self._transition(record, ExecutionStatus.CONFIRMED, confirmed_at=_now(),
                              receipt=ext.get("receipt") or record.receipt)
             self.store.update_operation(tenant_id, record.operation_id, OperationStatus.EXECUTED,
                                         result={"execution_status": ExecutionStatus.CONFIRMED.value,
                                                 "reconciled": True,
                                                 "message": "对账确认执行成功。"})
-            return "confirmed", "confirmed_by_reconcile"
+            return "confirmed", ("overdue_confirmed_by_reconcile" if overdue
+                                 else "confirmed_by_reconcile")
         if ext_status in ("failed", "rejected"):
             self._reconcile_failure(record, "provider_failed")
             final = self.store.get_execution_record(tenant_id, record.execution_id)
             return ("human_handoff" if final.status is ExecutionStatus.COMPENSATION_FAILED
-                    else "confirmed"), "compensated_after_failure"
-        self._reconcile_mismatch(record, f"unknown_provider_status:{ext_status}")
-        return "mismatch", f"unknown_provider_status:{ext_status}"
+                    else "confirmed"), ("overdue_compensated_after_failure" if overdue
+                                        else "compensated_after_failure")
+        self._reconcile_mismatch(record, f"{tag}unknown_provider_status:{ext_status}")
+        return "mismatch", f"{tag}unknown_provider_status:{ext_status}"
 
     def _reconcile_failure(self, record: ExecutionRecord, reason: str) -> None:
         """对账发现外部失败：先归一为 failed，发补偿（回滚）；补偿成功 → compensated，否则转人工。"""

@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     session_ttl_days: int = 7
     log_level: str = "INFO"
+    # 演示/种子数据（TENANT-A、TENANT-B 及演示成员）是否允许自动创建。
+    # 安全基线：仅 development/test 且本值为 true 才允许 seed_default；preview/production 一律禁止
+    # （is_restricted_env 为 true 时无论本值如何都拒绝），演示租户/成员只用于本地开发/测试。
+    # 首批真实租户与成员必须由受控迁移/运营脚本创建（见 scripts/create_bootstrapped_tenants.py），
+    # 不通过 seed_default。默认 false（最不安全配置也被拒绝）。
+    demo_seed_enabled: bool = False
+    # 环境/配置版本号：随部署基线递增，写进发布记录（config_version 字段）用于审计配置漂移。
+    deploy_config_version: str = "0.1.0"
     # 结构化 JSON 日志（带 tenant_id/session_id/operation_id 上下文，供日志平台采集）。
     # 默认关闭（开发用可读文本）；preview/production 建议开启并由自托管日志链路采集。
     log_json_format: bool = False
@@ -49,9 +57,31 @@ class Settings(BaseSettings):
     # 轮换步骤：新密钥写入 AUTH_JWT_SECRET，上一个密钥追加到 AUTH_JWT_ROTATED_SECRETS，观察无新旧令牌
     # 校验失败后（超过 `auth_jwt_ttl_seconds`）从列表移除。未知 kid 的令牌一律拒绝（fail-closed）。
     auth_jwt_rotated_secrets: str = ""
-    # 登录端点凭据表（JSON 字符串）：`{"<tenant_id>:<user_id>": "<sha256(credential) hex>"}`。
-    # 仅登录（签发 JWT）用；未配置对应条目或表为空时登录失败（fail-closed）并审计。凭据永不入日志。
+    # 登录端点凭据表（JSON 字符串）：`{"<tenant_id>:<user_id>": "<PHC 哈希>"}`。
+    # 哈希算法由 `auth_credential_hash` 决定（argon2id | bcrypt）。仅登录（签发 JWT）用；
+    # 未配置对应条目或表为空时登录失败（fail-closed）并审计。凭据（明文与哈希）永不入日志。
     auth_login_credentials: str = ""
+    # 登录凭据哈希算法：argon2id（默认，推荐）| bcrypt。禁止使用无盐 SHA-256（弱哈希）。
+    # 服务端只保存 PHC 字符串（如 `$argon2id$v=19$m=65536,t=3,p=4$...`），绝不明文存库/入日志。
+    # 生成哈希用 `python scripts/hash_login_credentials.py`（也可由 CI/密钥管理在部署时生成）。
+    auth_credential_hash: str = "argon2id"
+    # 登录限流与失败退避（/api/auth/login 专用；双维度：账号 + IP）。
+    # 存储后端：memory（单进程/无状态，默认，用于开发与默认部署；多副本需 redis）| redis（分布式）。
+    login_rate_limit_store: str = "memory"
+    # 限流窗口（秒）。账号维度与 IP 维度共用同一时间窗。
+    login_rate_limit_window_seconds: float = 300.0
+    # 单账号在窗口内的最大登录尝试次数；超限拒绝并审计（login_rate_limited）。
+    login_account_rate_limit: int = 5
+    # 单 IP 在窗口内的最大登录尝试次数（跨账号聚合）；超限拒绝并审计（ip_rate_limited）。
+    login_ip_rate_limit: int = 30
+    # 失败退避：同一账号连续失败 `login_backoff_max_failures` 次后，锁定
+    # `login_backoff_base_seconds * 2^(失败次数-阈值)`（封顶 login_backoff_max_seconds）。
+    login_backoff_max_failures: int = 5
+    login_backoff_base_seconds: float = 1.0
+    login_backoff_max_seconds: float = 900.0
+    # 受信任反向代理头的来源数（nginx 之后取最后一个可信 X-Forwarded-For 值作为客户端 IP）。
+    # 生产/预览统一由自托管 nginx 终结 HTTPS 后转发，故 X-Forwarded-For 可信；直接暴露时设 0。
+    login_trusted_proxy_depth: int = 1
 
     # --- 首次上线门控（少量租户 / 仅审批后执行 / 全量审计 / 人工复核）---
     # 逗号分隔的租户白名单。非空时仅这些租户可创建会话/聊天/审批操作（其它租户拒绝并审计）。

@@ -1,0 +1,365 @@
+{
+  "scenario": "extra_tables_rls_assessment",
+  "environment": "shared_public_schema_langgraph_db",
+  "db": {
+    "name": "langgraph",
+    "host_port": "127.0.0.1:55432",
+    "connected_as": "migrator",
+    "public_table_count": 38
+  },
+  "timestamp": "2026-09-03T18:22:33.163Z",
+  "reviewed_by": "reviewer (pg-acceptance-continue)",
+  "task": "t6-判定25张无RLS的public表是否属于本PostgreSQL验收范围",
+  "scope": "判定这25张未启用RLS的表是否由本仓库 src/ 或部署迁移定义；若为共享/遗留库中的非本系统表则属'库共享、非本验收范围'（caveat）；若属本系统应补RLS则标记GAP并写FAIL。只读，未改schema。",
+  "method": [
+    "grep src/ 及 deploy/ 与 migrations.py / data/pg_setup.sql 交叉核对 25 个表名；",
+    "核对 evidence/pg_rls_policies.json 的 38 表清单与 RLS 状态；",
+    "核对 src/infrastructure/migrations.py 实际创建的表清单。"
+  ],
+  "evidence": {
+    "repo_migrations_tables": {
+      "business_tables": [
+        "tenants",
+        "memberships",
+        "sessions",
+        "operations",
+        "approvals",
+        "executions",
+        "streams",
+        "stream_events",
+        "audit",
+        "checkpoint_thread_scopes"
+      ],
+      "checkpoint_tables": [
+        "checkpoint_migrations",
+        "checkpoints",
+        "checkpoint_blobs",
+        "checkpoint_writes"
+      ],
+      "rls_applied_to": [
+        "memberships",
+        "sessions",
+        "operations",
+        "approvals",
+        "executions",
+        "streams",
+        "stream_events",
+        "audit",
+        "checkpoint_thread_scopes",
+        "checkpoints",
+        "checkpoint_blobs",
+        "checkpoint_writes"
+      ],
+      "total_tables_created": 14
+    },
+    "rls_policy_collection": {
+      "public_table_count": 38,
+      "rls_tables": [
+        "approvals",
+        "audit",
+        "checkpoint_blobs",
+        "checkpoint_thread_scopes",
+        "checkpoint_writes",
+        "checkpoints",
+        "executions",
+        "memberships",
+        "operations",
+        "sessions",
+        "stream_events",
+        "streams"
+      ],
+      "platform_no_rls": [
+        "tenants"
+      ],
+      "no_rls_tables": [
+        "agent_events",
+        "agent_runs",
+        "agent_schema_version",
+        "agent_thread_activity",
+        "checkpoint_migrations",
+        "store",
+        "store_migrations",
+        "inbound_events",
+        "it_assets",
+        "knowledge_chunks",
+        "knowledge_documents",
+        "outbox_events",
+        "routing_rules",
+        "satisfaction_surveys",
+        "sla_policies",
+        "support_members",
+        "support_schedules",
+        "support_teams",
+        "tenant_it_policies",
+        "ticket_assignments",
+        "ticket_messages",
+        "ticket_sla",
+        "ticket_status_events",
+        "ticket_workflow_runs",
+        "tickets"
+      ],
+      "core_check_passed": {
+        "all_non_tenant_tables_rls_enabled_and_forced": true,
+        "all_non_tenant_public_tables_rls": false
+      },
+      "verifier_note": "Whether these are app-layer-scoped (design) or a gap requires reviewer judgment; this task is read-only data collection and made no schema changes."
+    },
+    "grep_results": {
+      "src_hits": {
+        "checkpoint_migrations": [
+          "src/infrastructure/migrations.py"
+        ],
+        "all_other_24_tables": "0 matches"
+      },
+      "deploy_hits": "0 matches for all 25 tables",
+      "sql_files": "repo has no schema-defining .sql (only data/pg_setup.sql = roles + db check; other .sql are under third-party .accept-crewai-venv)"
+    }
+  },
+  "tables_assessed": [
+    {
+      "table": "agent_events",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "langgraph_library",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "agent_runs",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "langgraph_library",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "agent_schema_version",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "langgraph_library",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "agent_thread_activity",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "langgraph_library",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "checkpoint_migrations",
+      "repo_defined_by_migration": true,
+      "repo_defined_by_src": false,
+      "classification": "langgraph_library",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "store",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "langgraph_library",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "store_migrations",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "langgraph_library",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "inbound_events",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "it_assets",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "knowledge_chunks",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "knowledge_documents",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "outbox_events",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "routing_rules",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "satisfaction_surveys",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "sla_policies",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "support_members",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "support_schedules",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "support_teams",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "tenant_it_policies",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "ticket_assignments",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "ticket_messages",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "ticket_sla",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "ticket_status_events",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "ticket_workflow_runs",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    },
+    {
+      "table": "tickets",
+      "repo_defined_by_migration": false,
+      "repo_defined_by_src": false,
+      "classification": "other_domain_shared_legacy",
+      "is_this_system_data_plane": false,
+      "needs_rls": false
+    }
+  ],
+  "per_table_summary": {
+    "langgraph_library_tables": [
+      "agent_events",
+      "agent_runs",
+      "agent_schema_version",
+      "agent_thread_activity",
+      "checkpoint_migrations",
+      "store",
+      "store_migrations"
+    ],
+    "other_domain_shared_legacy_tables": [
+      "inbound_events",
+      "it_assets",
+      "knowledge_chunks",
+      "knowledge_documents",
+      "outbox_events",
+      "routing_rules",
+      "satisfaction_surveys",
+      "sla_policies",
+      "support_members",
+      "support_schedules",
+      "support_teams",
+      "tenant_it_policies",
+      "ticket_assignments",
+      "ticket_messages",
+      "ticket_sla",
+      "ticket_status_events",
+      "ticket_workflow_runs",
+      "tickets"
+    ],
+    "total": 25
+  },
+  "verdict": {
+    "a_defined_by_repo_migration": "No. migrations.py builds only 14 tables (10 business + 4 checkpoint); none of these 25 are among its own data-plane tables. The only overlap is 'checkpoint_migrations', which migrations.py DOES create, but as langgraph-checkpoint version-tracking bookkeeping (v INTEGER PRIMARY KEY, no tenant_id / no tenant semantics), not a data-plane table. No .sql file in the repo defines these; data/pg_setup.sql only sets roles/db.",
+    "a_defined_by_src": "No. Grep src/ returns 0 matches for 24 of them; the 25th (checkpoint_migrations) appears only in migrations.py.",
+    "b_shared_library_out_of_scope": true,
+    "b_rationale": "These 25 tables reside in the public schema of the shared PostgreSQL database 'langgraph'. 7 are langgraph library tables (agent_events/agent_runs/agent_schema_version/agent_thread_activity = langgraph Agent; checkpoint_migrations/store/store_migrations = langgraph-checkpoint-postgres version+store). The remaining 18 (inbound_events/outbox_events/it_assets/knowledge_chunks/knowledge_documents/routing_rules/satisfaction_surveys/sla_policies/support_members/support_schedules/support_teams/tenant_it_policies/ticket_assignments/ticket_messages/ticket_sla/ticket_status_events/ticket_workflow_runs/tickets) belong to a DIFFERENT support/ticketing/ITSM/knowledge domain application sharing the same DB. None are this e-commerce after-sales refund system's data-plane tables (which are tenants/memberships/sessions/operations/approvals/executions/streams/stream_events/audit/checkpoint_thread_scopes + checkpoints/checkpoint_blobs/checkpoint_writes).",
+    "b_does_not_affect_12_table_rls_conclusion": true,
+    "c_gap_fail_for_this_system": false,
+    "c_rationale": "Since none of the 25 are this system's tenant data-plane tables, they are NOT tables that this system 'should have applied RLS to'. Accordingly there is no GAP and no FAIL against this acceptance's data-plane RLS scope.",
+    "note_checkpoint_migrations": "checkpoint_migrations is created by this repo's initialize_checkpoint_schema (mirroring langgraph-checkpoint-postgres MIGRATIONS). Because it is a library version-tracking table (single 'v' column) with no tenant_id and no tenant data, applying RLS to it is neither required nor meaningful; it is classified as shared-library bookkeeping, not a GAP.",
+    "observation_over_broad_grant": "INFO (not a failure of this scope): this repo's apply_runtime_role executes 'GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO app_runtime', which granted app_runtime DML on ALL 38 public tables INCLUDING these 25 shared non-RLS tables (confirmed in pg_rls_policies.json app_runtime_table_grants / app_runtime_dml_grants). Because those tables are not RLS-enforced and app_runtime holds DML on them, this is a cross-tenant/data-exposure hardening consideration for a future task. It does NOT invalidate the 12-table data-plane RLS verification (that used app_runtime on the 12 RLS tables, correctly filtered)."
+  },
+  "overall_conclusion": "CAVEAT (not FAIL / not GAP). The 25 tables are shared/legacy library or other-domain tables in the shared 'langgraph' PostgreSQL schema, not this repository's data-plane tables. They are outside this PostgreSQL acceptance's RLS scope and do NOT affect the verified 12-table data-plane RLS conclusion. The 12-table core check (all_non_tenant_tables_rls_enabled_and_forced=true) stands.",
+  "read_only": "未修改任何 schema / 源码；仅新增本审查记录文件。"
+}

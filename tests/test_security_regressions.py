@@ -20,7 +20,13 @@ import pytest
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
-from src.auth.security import issue_token, resolve_tenant_context
+from src.auth.security import (
+    _redact_detail,
+    audit_security_denial,
+    issue_login_token,
+    issue_token,
+    resolve_tenant_context,
+)
 from src.config import Settings
 from src.core.types import DomainError, Role, SessionStatus
 from src.graph.builder import build_graph
@@ -329,3 +335,101 @@ def test_cors_disabled_by_default():
         })
         # 未启用 CORS → 不返回允许跨域头。
         assert r.headers.get("access-control-allow-origin") != "http://evil.local"
+
+
+# ---------------------------------------------------------------------------
+# 7. 登录凭据哈希升级：Argon2id 默认校验；bcrypt 可选；旧无盐 SHA-256 一律拒绝（legacy_sha256）
+# ---------------------------------------------------------------------------
+def _login_store() -> MemoryStore:
+    store = MemoryStore()
+    store.create_tenant("T", "t")
+    store.add_membership("T", "U", Role.CUSTOMER)
+    return store
+
+
+def _real_settings(creds_json: str, algo: str = "argon2id") -> Settings:
+    return Settings(env="production", auth_backend="real", auth_jwt_secret="sec-please",
+                    auth_login_credentials=creds_json, auth_credential_hash=algo)
+
+
+def test_login_verifies_argon2id_and_returns_jwt():
+    from argon2 import PasswordHasher
+
+    phc = PasswordHasher().hash("correct-pw")
+    store = _login_store()
+    settings = _real_settings(json.dumps({"T:U": phc}), "argon2id")
+    token = issue_login_token(store, settings, "T", "U", "correct-pw")
+    assert token.count(".") == 2 and not token.startswith("mock:")
+
+
+def test_login_rejects_legacy_sha256_with_audit():
+    # 服务端仍存旧无盐 SHA-256 → 一律拒绝并在审计中标注 legacy_sha256（弱哈希已消除）。
+    legacy = hashlib.sha256(b"correct-pw").hexdigest()
+    store = _login_store()
+    settings = _real_settings(json.dumps({"T:U": legacy}), "argon2id")
+    with pytest.raises(DomainError) as ei:
+        issue_login_token(store, settings, "T", "U", "correct-pw")
+    assert ei.value.code == "unauthorized" and ei.value.status_code == 401
+    actions = [r.action for r in store.list_audit("T")]
+    assert any(a.startswith("security.deny.legacy_sha256") for a in actions)
+
+
+def test_login_argon2id_wrong_password_rejected():
+    from argon2 import PasswordHasher
+
+    phc = PasswordHasher().hash("correct-pw")
+    store = _login_store()
+    settings = _real_settings(json.dumps({"T:U": phc}), "argon2id")
+    with pytest.raises(DomainError) as ei:
+        issue_login_token(store, settings, "T", "U", "wrong-pw")
+    assert ei.value.status_code == 401
+    assert any(a.startswith("security.deny.login_failed") for a in [r.action for r in store.list_audit("T")])
+
+
+def test_login_bcrypt_scheme_verifies():
+    import bcrypt
+
+    phc = bcrypt.hashpw(b"correct-pw", bcrypt.gensalt()).decode("utf-8")
+    store = _login_store()
+    settings = _real_settings(json.dumps({"T:U": phc}), "bcrypt")
+    token = issue_login_token(store, settings, "T", "U", "correct-pw")
+    assert token.count(".") == 2
+    # 反向验证：bcrypt 表 + 错误口令 → 401。
+    with pytest.raises(DomainError) as ei:
+        issue_login_token(store, settings, "T", "U", "wrong-pw")
+    assert ei.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 8. 脱敏黑名单补 hash/phc/credential_hash：凭据哈希永不入审计日志
+# ---------------------------------------------------------------------------
+def test_redact_detail_masks_hash_phc_credential_hash_keys():
+    # 若未来某路径把凭据哈希写入名为 hash/phc/credential_hash 的 detail 键，应被 [REDACTED]。
+    leaked = _redact_detail({
+        "hash": "deadbeef",
+        "phc": "$argon2id$v=19$m=65536,t=3,p=4$salt$tag",
+        "credential_hash": "zzz",
+        "algorithm": "argon2id",           # 非敏感键保持原样
+        "nested": {"pwd_hash": "nested-hash"},
+    })
+    assert leaked["hash"] == "[REDACTED]"
+    assert leaked["phc"] == "[REDACTED]"
+    assert leaked["credential_hash"] == "[REDACTED]"
+    assert leaked["algorithm"] == "argon2id"
+    # 子串匹配也应命中嵌套/前缀键（password_hash / hashed_credential）。
+    assert leaked["nested"] == {"pwd_hash": "[REDACTED]"}
+
+
+def test_audit_security_denial_redacts_hash_phc_credential_hash():
+    store = _login_store()
+    audit_security_denial(store, "T", "U", "login_failed", "auth", "T:U",
+                          {"hash": "deadbeef", "phc": "$argon2id$.", "credential_hash": "zzz",
+                           "client_ip": "10.0.0.1", "algorithm": "argon2id"})
+    records = store.list_audit("T")
+    assert records, "应写入审计记录"
+    rec = records[-1]
+    blob = str(rec.detail)
+    assert "[REDACTED]" in blob
+    assert "deadbeef" not in blob and "$argon2id" not in blob and "zzz" not in blob
+    # 非敏感键保持原文。
+    assert rec.detail.get("client_ip") == "10.0.0.1"

@@ -19,29 +19,91 @@ name: after-sales-observability
 
 services:
   # ---- Langfuse（自托管全链路 trace）----
+  # ---- ClickHouse（langfuse v3 事件存储；内部网，不发布宿主端口）----
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    environment:
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD:?LANGFUSE_CLICKHOUSE_PASSWORD 必须由密钥注入}
+      - CLICKHOUSE_DEFAULT_DATABASE=default
+    networks: [obs]
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --password \"${LANGFUSE_CLICKHOUSE_PASSWORD}\" --query \"SELECT 1\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ---- MinIO（langfuse v3 S3 对象存储；事件/媒体上传；内部网，不发布宿主端口）----
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      - MINIO_ROOT_USER=${LANGFUSE_MINIO_ROOT_USER:?LANGFUSE_MINIO_ROOT_USER 必须由密钥注入}
+      - MINIO_ROOT_PASSWORD=${LANGFUSE_MINIO_ROOT_PASSWORD:?LANGFUSE_MINIO_ROOT_PASSWORD 必须由密钥注入}
+    volumes: ["./data/minio:/data"]
+    networks: [obs]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
   langfuse:
-    image: docker.1ms.run/library/langfuse/langfuse:3
+    # langfuse v3：ClickHouse（事件存储）+ postgres（应用库）+ redis（队列）。入口自动跑
+    # postgres 与 clickhouse 迁移（prisma migrate deploy + clickhouse up.sh），无需单独 migrate 服务。
+    image: langfuse/langfuse:3
     environment:
       - NODE_ENV=production
+      - HOSTNAME=0.0.0.0            # Next.js 以 Docker 提供的 HOSTNAME(容器ID) 绑定到 eth0 IP 而非 loopback，导致 localhost:3000 healthcheck 拒连；显式设为 0.0.0.0 使服务在 loopback + eth0 均可达。
       - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD:?LANGFUSE_DB_PASSWORD 必须由密钥注入}@langfuse-postgres:5432/langfuse
+      - DIRECT_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD:?LANGFUSE_DB_PASSWORD 必须由密钥注入}@langfuse-postgres:5432/langfuse
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse:9000
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD:?LANGFUSE_CLICKHOUSE_PASSWORD 必须由密钥注入}
+      - CLICKHOUSE_CLUSTER_ENABLED=false
       - REDIS_HOST=langfuse-redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=${LANGFUSE_REDIS_PASSWORD:?LANGFUSE_REDIS_PASSWORD 必须由密钥注入}
+      - REDIS_AUTH=${LANGFUSE_REDIS_PASSWORD:?LANGFUSE_REDIS_PASSWORD 必须由密钥注入}
       - SALT=${LANGFUSE_SALT:?LANGFUSE_SALT 必须由密钥注入}
-      - LANGFUSE_WORKER_QUEUE_ENABLED=true
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY:?LANGFUSE_ENCRYPTION_KEY 必须由密钥注入}
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET:?LANGFUSE_NEXTAUTH_SECRET 必须由密钥注入}
+      - NEXTAUTH_URL=${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      # langfuse v3 S3（MinIO）事件/媒体上传对象存储（内部网，force_path_style）
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_MINIO_ROOT_USER:?LANGFUSE_MINIO_ROOT_USER 必须由密钥注入}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_MINIO_ROOT_PASSWORD:?LANGFUSE_MINIO_ROOT_PASSWORD 必须由密钥注入}
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse-events
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_EVENT_UPLOAD_PREFIX=events
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://minio:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_MINIO_ROOT_USER:?LANGFUSE_MINIO_ROOT_USER 必须由密钥注入}
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_MINIO_ROOT_PASSWORD:?LANGFUSE_MINIO_ROOT_PASSWORD 必须由密钥注入}
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse-media
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media
       - TELEMETRY_ENABLED=false            # 完全自托管：关闭匿名遥测
     networks: [obs]
     depends_on:
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
       langfuse-postgres:
         condition: service_healthy
       langfuse-redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "-T", "3", "http://localhost:3000/api/public/health"]
+      # 容器内 localhost 解析为 IPv6 ::1，而 Next.js 服务监听 IPv4(0.0.0.0)；故用 127.0.0.1 显式指定 IPv4 loopback。
+      test: ["CMD", "wget", "-qO-", "-T", "3", "http://127.0.0.1:3000/api/public/health"]
       interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 20s
+      start_period: 25s
 
   langfuse-postgres:
     image: docker.1ms.run/library/postgres:16-alpine
@@ -73,6 +135,7 @@ services:
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
     volumes:
       - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - ./data/prometheus:/prometheus
     networks: [obs, app-net]        # app-net 用于抓取 api:8000/api/metrics
     healthcheck:
