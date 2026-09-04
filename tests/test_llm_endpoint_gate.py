@@ -50,27 +50,44 @@ from tests.test_chat_sse import parse_sse
 @pytest.fixture(scope="module")
 def self_hosted_endpoint():
     """启动一个临时自托管 OpenAI 兼容端点（默认 self-hosted-model，不在白名单）。"""
+    import random
     import uvicorn
     from src.llm.self_hosted_server import app
-    port = 8011
+    # 用高位随机端口，避免与其它进程/残留端点（如 8000/8001/8011）冲突，full-suite 高负载下更稳。
+    port = random.randint(20000, 49000)
     env = {**os.environ, "DSH_LLM_ENDPOINT_MODEL": "self-hosted-model"}
     proc = subprocess.Popen(
         [sys.executable, "-c",
          f"import uvicorn;from src.llm.self_hosted_server import app;uvicorn.run(app,host='127.0.0.1',port={port})"],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(60):
+    ready = False
+    for _ in range(80):
         time.sleep(0.1)
         try:
             r = httpx.get(f"http://127.0.0.1:{port}/v1/models", timeout=1.0)
             if r.status_code == 200:
+                ready = True
                 break
         except Exception:
             continue
-    else:
+    if not ready:
         proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
         pytest.skip("自托管端点未就绪")
-    yield f"http://127.0.0.1:{port}/v1"
-    proc.terminate()
+    try:
+        yield f"http://127.0.0.1:{port}/v1"
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
 
 def _eligible_store() -> MemoryStore:
@@ -116,13 +133,11 @@ def test_capability_restricted_requires_eval_report():
     assert resolve_high_confidence_models(s) == frozenset()
 
 
-def test_capability_only_eval_passed_whitelisted():
+def test_capability_only_eval_passed_whitelisted(tmp_path):
     # 受限环境 + 白名单模型 + 评测报告标记 write_op_pass=true → 才可写。
-    report_path = os.path.join(os.path.dirname(__file__), "..", "evidence",
-                               "llm_candidate_eval.json")
-    # 生成/读取一份把 qwen2.5-max 标记为通过的评测报告。
+    # 评测报告写到临时目录，不污染仓库 evidence/ 的权威 stub。
+    report_path = str(tmp_path / "llm_candidate_eval.json")
     import json
-    os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump({"qwen2.5-max": {"write_op_pass": True,
                                    "cases": [{"case_id": "writeop-refund-whitelist",
@@ -341,11 +356,11 @@ def test_non_whitelist_model_no_bypass_in_graph(self_hosted_endpoint):
     assert out.get("falls_to_error") is True
 
 
-def test_whitelist_model_still_requires_approval(self_hosted_endpoint):
+def test_whitelist_model_still_requires_approval(self_hosted_endpoint, tmp_path):
     # 白名单模型（在这份评测报告中标记 write_op_pass 的模型）写操作仍必须进入唯一 human_approval。
+    # 评测报告写到临时目录，不污染仓库 evidence/ 的权威 stub。
     import json
-    report_path = os.path.join(os.path.dirname(__file__), "..", "evidence",
-                               "llm_candidate_eval.json")
+    report_path = str(tmp_path / "llm_candidate_eval.json")
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump({"self-hosted-demo": {"write_op_pass": True,
                                         "cases": [{"case_id": "writeop-refund-whitelist",
