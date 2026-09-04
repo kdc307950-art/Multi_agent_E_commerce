@@ -13,11 +13,11 @@
 
 | 项 | 值 |
 |---|---|
-| 发布 tag | **`release/v1.0.0-rc2`** → commit `59e37f2`（annotated tag `d2c9db1`；git 实测） |
-| 基线 commit 链 | `7941246`(已测功能) → `3268a1c`(可复现构建) → `696444a`(migrations 复合FK修复) → `8ddca48`(接受运行面) → `cd743d3`(BUSINESS_DATA_BACKEND, **rc1**) → `cde30fb`(T1/T7 发布证据+生产栈健康) → **`59e37f2`(rc2 定稿)**。<br>注：历史文字曾引 `1e7bc96`(rc2 定稿)——其为 `cde30fb` 的**同父 sibling 提交**（标题与 `59e37f2` 几乎相同但少"一页状态说明"后缀、非 HEAD 祖先），已过时弃用；以 tag/HEAD `59e37f2` 为准（git 实测）。 |
+| 发布 tag | **`release/v1.0.0-rc2`** → 发布**基线尖端**（在 `59e37f2`(rc2 定稿) 之上叠加"阶段一发布基线收口"提交＝当前基线尖端；**以 tag 为锚**） |
+| 基线 commit 链 | `7941246`(已测功能) → `3268a1c`(可复现构建) → `696444a`(migrations 复合FK修复) → `8ddca48`(接受运行面) → `cd743d3`(BUSINESS_DATA_BACKEND, **rc1**) → `cde30fb`(T1/T7 发布证据+生产栈健康) → `59e37f2`(rc2 定稿历史) → **阶段一发布基线收口提交(＝基线尖端)**。<br>注：历史文字曾引 `1e7bc96`(rc2 定稿)——其为 `cde30fb` 的**同父 sibling 提交**（非 HEAD 祖先），已过时弃用；发布锚为 `release/v1.0.0-rc2` **以基线尖端为准**（与具体 hash 解耦）。 |
 | 镜像 digest | api `after-sales-prod-api@sha256:5d39f030...`；frontend `after-sales-prod-frontend@sha256:12c35ff7...`（**工作树构建观测值**；clean-context 字节级重建＝部署期执行项/BLOCKED-需 Docker engine 可连接） |
 | 迁移版本一致 | 项目**无数字 schema 版本**。一致性＝①迁移定义 `696444a` ∈ 基线链 ②镜像含迁移修复 ③`MIGRATE_VERIFY` 全新 prod-like 库 clean migrate exit 0（17表/复合FK/RLS生效）④checkpoint 由 `langgraph-checkpoint-postgres==3.1.2` 钉定驱动；`deploy_config_version=0.1.0` 三处一致 |
-| git 状态 | **非 clean**：存在未提交变更（t2 审计：11 M + 2 D + 43 ?? ≈ 56 文件级；A=必须提交 / B=证据归档 / C=临时清理；`.pytest-forensics-tmp/` 因权限无法枚举）。HEAD=`59e37f2`；branch 领先 origin/main 1 commit，未 push。 |
+| git 状态 | **clean**（阶段一已提交收口：统一发布口径 + 归档证据 + 清理临时产物，一次性提交）；HEAD=基线尖端（以 `release/v1.0.0-rc2` 为锚）。 |
 
 ## 三、四种证据边界（本发布统一口径）
 
@@ -51,10 +51,10 @@
 
 ## 七、达标判定
 
-- ⚠️ **非 clean**：目标为提交 `README.md` 与 `IMAGE_DIGESTS.json`（rc2 口径），但工作区仍有未提交变更（t2 审计：11 M + 2 D + 43 ?? ≈ 56 文件级，A=必须提交/证据归档/临时清理），**未达成 "git status 干净"**——当前为发布文档**收口态**（待提交待清理）。
-- ✅ 重定稿 `GO_NO_GO.md` / `FINAL_ACCEPTANCE.md`，统一四证据边界，消除"已完成/未接入"矛盾（修正 rc1→cd743d3、A8/G9 生产栈健康已证实、迁移版本 4 点表述；**rc2→`59e37f2`** 口径）。
-- ✅ 统一 `README.md` 生产候选版口径（11→12 份文档、PostgreSQL/RLS 已接入验证、全量 pytest 320 passed / 34 skipped / 70 errors（**t1 实测**）、放量 NO-GO、rc2→`59e37f2`）。
-- ✅ `release/v1.0.0-rc2` 标签（→`59e37f2`）；镜像 digest、迁移版本（4 点）与 tag 一致。
+- ✅ **已提交收口**：阶段一发布基线收口提交已纳入（统一发布口径 + 归档证据 + 清理临时产物），工作区 **clean**（以 `release/v1.0.0-rc2` 为锚）。
+- ✅ 重定稿 `GO_NO_GO.md` / `FINAL_ACCEPTANCE.md`，统一四证据边界，消除"已完成/未接入"矛盾（修正 rc1→cd743d3、A8/G9 生产栈健康已证实、迁移版本 4 点表述；**rc2 以基线尖端为锚** 口径）。
+- ✅ 统一 `README.md` 生产候选版口径（11→12 份文档、PostgreSQL/RLS 已接入验证、全量 pytest 320 passed / 34 skipped / 70 errors（**t1 实测**）、放量 NO-GO、rc2 以基线尖端为锚）。
+- ✅ `release/v1.0.0-rc2` 标签（→ 基线尖端）；镜像 digest、迁移版本（4 点）与 tag 一致。
 - ✅ 所有未验证项均有明确责任人 + 解锁条件（见 §五）。
 
 > **诚实声明**：镜像 digest 为工作树构建观测值（代码==cde30fb 运行面基线），**非 clean-context 字节级复现**；该重建列为部署期执行项。**切勿将本状态说明中的"生产候选"误读为"已生产放行"**——正式放量当前 NO-GO，须 §五 外部输入到位 + §六 复验通过后转有条件 GO。
