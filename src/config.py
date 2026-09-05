@@ -153,6 +153,12 @@ class Settings(BaseSettings):
     llm_model: str = "self-hosted-model"
     llm_timeout_seconds: float = 10.0   # 单次调用总期限（deadline，不叠加超时）
     llm_max_retries: int = 2            # 同类型错误有界重试
+    # 本地模型的单次最大输出 token。工具选择只需短输出，限制它可降低演示延迟与显存占用。
+    llm_max_tokens: int = 512
+    # 部分本地推理模型（如 Ollama 托管的 Qwen3）默认会输出长思考链。
+    # 开启后请求 OpenAI-compatible 端点时传递 `think=false`；不支持该参数的端点应由
+    # LiteLLM 丢弃，而不是改接外部服务或放宽超时。
+    llm_disable_thinking: bool = False
     # 端点网络白名单：逗号分隔的 host / IP / CIDR。受限环境为空即 fail-closed。
     llm_allowed_hosts: str = ""
     # 是否启用脱敏日志（掩码手机号/地址/订单号/密钥/授权头；默认开启）。

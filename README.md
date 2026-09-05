@@ -1,7 +1,7 @@
 # 电商售后多智能体工单系统 — 项目索引页（README · 生产候选版）
 
 > **项目**：电商售后多智能体工单系统（E-commerce After-Sales Multi-Agent Ticket System）
-> **一句话定位**：基于 **LangGraph 主控 + CrewAI 子智能体 + 人工审批** 的售后工单面试作品。当前为**单租户、低并发、Shadow、完全自托管的 RC5 生产候选**；正式生产放量仍为 `NO-GO`。已验证 PostgreSQL/RLS、审批、幂等、沙箱、异常 fail-closed，以及**代表性自托管端点上的真实 CrewAI 工具调用**；真实权重模型能力仍未验证。
+> **一句话定位**：基于 **LangGraph 主控 + CrewAI 子智能体 + 人工审批** 的售后工单面试作品。当前为**单租户、低并发、Shadow、完全自托管的 RC5 生产候选**；正式生产放量仍为 `NO-GO`。已验证 PostgreSQL/RLS、审批、幂等、沙箱和异常 fail-closed；本机 `qwen3:4b` 曾返回标准 `tool_calls`，但重复探针不稳定，**CrewAI + Qwen 运行时未纳入已通过能力，写操作继续 fail-closed**。
 > **用途**：本目录为项目的**完整交付包**，可交作业、答辩、评审、部署。本文档为入口/索引。
 
 > **文档归档说明（2026-09-05）**：原始长篇设计文档已移至桌面目录 `Multi_agent_E_commerce_原始项目文档_20260905`，仓库保留 README、项目状态、冻结记录、验收证据和可执行脚本作为面试交付面。
@@ -17,7 +17,7 @@
 | 3 | 项目架构说明书（Architecture Design Document） | 内部流程 | 四层嵌套、状态机、检查点、人工审批、Agentic RAG | LangGraph 状态机 + HITL |
 | 4 | 项目落地细节（Implementation Details） | 怎么建 | 环境、路线图、关键决策、测试、部署、成本 | — |
 | 5 | **记忆架构设计**（Memory Architecture Design） | 跨会话记忆 | **Graphiti**（时序图谱）+ Neo4j，validity window | 为什么选时序图谱而非 Mem0 |
-| 6 | **工具调用与集成** | 工具层 | MCP 规范 + 工具清单 + **合并→分域→检索**三阶梯 | 为什么静态绑定最优，不上 Tool Search |
+| 6 | **工具调用与集成** | 工具层 | 按 MCP 设计原则组织工具契约 + 工具清单 + **合并→分域→检索**三阶梯 | 为什么静态绑定最优，不上 Tool Search |
 | 7 | **错误处理与回退机制** | 容错层 | 能力矩阵 + 写操作幂等 + 审批 + 降级阶梯 | 安全优先：先保证不做错资金操作 |
 | 8 | **会话与线程管理设计** | 核心基础设施 | 不透明 thread_id、Sqlite→Postgres 检查点、多租户隔离、时间旅行 | 服务端 TenantContext + 会话归属校验 |
 | 9 | **生产环境架构设计** | 部署拓扑 | 前后端分离、React+Next.js、FastAPI 网关、SSE、HA 数据面 | 开发/预发布/生产三层拓扑 |
@@ -44,7 +44,7 @@
 
 横向专项 / 基础设施（各管一层）
   ⑤ 记忆架构设计：Graphiti + Neo4j / validity window / 来源溯源
-  ⑥ 工具调用与集成：MCP + 分域 + 三阶梯
+  ⑥ 工具调用与集成：按 MCP 设计原则 + 分域 + 三阶梯
   ⑦ 错误处理与回退：能力矩阵 + 幂等 + 人工审批 + 降级阶梯
   ⑧ 会话与线程管理：thread_id + TenantScopedCheckpointer + 归属校验
   ⑨ 生产环境架构设计：前后端分离 + SSE + HA 数据面 + 三层拓扑
@@ -71,9 +71,9 @@
 |---|---|---|
 | 编排 | LangGraph 主控 + CrewAI 子智能体 | 状态机 + 角色化协作 |
 | **检查点/会话** | 开发 `SqliteSaver` · 生产 **`TenantScopedCheckpointer + AsyncPostgresSaver`** | 会话归属和 checkpoint 的 invoke、恢复、历史、清理、审批续跑均校验租户作用域（见④/⑧） |
-| 知识/RAG | Agentic RAG（自纠正 + 幻觉检测） | 政策问答，Milvus 向量 |
+| 知识/RAG | Agentic RAG（自纠正 + 幻觉检测） | 政策问答；Milvus 为**可选实验性后端**（当前冻结，默认确定性检索） |
 | **长期记忆** | **Graphiti（时序图谱引擎）+ Neo4j（社区版自托管）** | 用户画像 + "当时为真"溯源；用 Graphiti 引擎，非 Zep |
-| **工具调用** | **MCP 规范**（主）+ 原生 Function Calling（本地小工具兜底） | 业务 7 + 平台 2，共 9 个工具能力 |
+| **工具调用** | 工具契约按 **MCP 设计原则**组织；当前运行时用 **CrewAI/OpenAI-compatible tool calling**（MCP 协议接入为后续阶段） | 业务 7 + 平台 2，共 9 个工具能力 |
 | **生产架构** | **React + Next.js + FastAPI 网关 + 前后端分离 + 多副本数据面** | 本地 Compose、租赁服务器预发布、生产 HA 分层演进 |
 | **容错** | **能力矩阵 + 写操作幂等 + 人工审批 + 降级阶梯** | 安全优先，不做错资金操作 |
 | 可观测 | 自托管 **Langfuse**（链路+指标） | 数据在项目方控制边界内流转；可选 Prometheus/Grafana |
@@ -81,7 +81,7 @@
 | 数据存储 | PostgreSQL + Neo4j + Milvus | standalone 仅用于开发/预发布；生产目标使用 HA 数据服务拓扑 |
 | **租户隔离** | `TenantContext` + PostgreSQL RLS/等效 guard + 数据面命名空间 | API、会话、审批、RAG、图谱、缓存、队列和审计全链路带 `tenant_id` |
 
-> **一句话架构**：LangGraph 编排 · Graphiti+Neo4j 给长期记忆 · TenantScopedCheckpointer+Postgres 给会话 · MCP 给工具 · TenantContext+数据面隔离给多租户 · 能力矩阵+审批/安全回退给写操作 · 三层部署与验收记录给生产证据。
+> **一句话架构**：LangGraph 编排 · Graphiti+Neo4j 给长期记忆 · TenantScopedCheckpointer+Postgres 给会话 · MCP 设计原则组织工具契约 · TenantContext+数据面隔离给多租户 · 能力矩阵+审批/安全回退给写操作 · 三层部署与验收记录给生产证据。
 
 ---
 
@@ -104,9 +104,9 @@
 |---|---|---|
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
-| 自动化测试 | **全量 pytest：414 passed, 34 skipped**（`RUN_CREWAI_INTEGRATION=1`，EXIT=0；2026-09-05）。默认回归与可选 CrewAI 集成需分开报告；34 skipped 主要为未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 Postgres/RLS 数据面；CrewAI 专项另见 `INTERVIEW_FREEZE.md`。 |
+| 自动化测试 | **全量 pytest：416 passed, 35 skipped**（EXIT=0；2026-09-05）。其中新增 1 项为本机 Ollama 协议探针（默认跳过）；其余跳过主要为未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 CrewAI 安全链路。 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
-| 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0` 在独立 venv 导入+对象构造验收通过，**未与 langgraph 同环境验证共存** |
+| 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 langgraph **同环境导入并运行真实调用链**（`test_crewai_real_call_chain_integration` 1 passed）；**真实权重模型未验证** |
 | 前端 | **容器内构建成功** | `docker build frontend` 成功（Next.js 14.2.5 `Ready`，`/` 返回 200）；本机 npm 受安全策略限制，故在容器内构建验证 |
 | Docker Compose（preview） | **本机实机验证** | 已 `docker compose up` 启动 postgres:17-alpine/redis:7-alpine/api/frontend/worker 并验证：postgres `SELECT version` 通过、redis `PONG`、api `:8000` openapi 200 + 退款触发 `approval_required`、frontend `:3000` 200 |
 | **独立生产栈 `after-sales-prod`** | **容器级健康已实测/已证实（边界3 专栈实机；一次 bring-up 观测，T7，非当前运行态）** | `PROD_STACK_HEALTH.md`（T7）：compose `migrate` exit 0 + api/worker/frontend/nginx/postgres/redis 全 **healthy**，nginx `8080`/`8843` 暴露，api `/api/healthz`(8843)=200、frontend `/`=200、`/api/metrics`(公网)=404（内网化正确阻断）；受信 TLS 就绪前不可对外暴露 8080/8843 |
@@ -114,7 +114,7 @@
 | 发布基线 | **RC5 候选** | `release/v1.0.0-rc5-candidate` → `8d44e80`；当前工作树有后续未提交修改，形成新候选前需重新绑定 commit、证据和测试数字 |
 | 长期记忆（Graphiti/Neo4j） | **未接入** | 属后续阶段，依赖其版本/许可/自托管验证，不承诺（设计态） |
 | 能力矩阵 / CrewAI 子智能体 | **代表性端点真实调用已验证；真实权重未验证** | `crewai==0.152.0` 独立环境 + 本地 OpenAI-compatible 端点已验证工具实际执行、审批前置和异常 fail-closed；代表性端点评测不可进入写白名单，真实权重评测待完成 |
-| **自托管 LLM 端点接入** | **代码就位 + 本地验收（边界2）+ 真实权重 BLOCKED（边界4）** | `src/llm/self_hosted_server.py`、`EndpointGuard`（网络白名单）、脱敏日志、评测驱动白名单；`verify_llm_chain.py` 三验收项通过。**真实模型权重尚未接入**（边界4 BLOCKED），写白名单需以真实端点跑 `scripts/evaluate_models.py` 后按报告注入 |
+| **自托管 LLM 端点接入** | **本机真实权重候选协议不稳定；CrewAI 运行时/写能力未验收** | Ollama `qwen3:4b` 的 `tool_calls` 探针可偶发成功但未稳定复现（`scripts/verify_ollama_tool_call.py`）；CrewAI + Qwen 仍需专项适配，当前不进入写白名单 |
 
 **结论（面试作品版）**：主线保持 `售后请求 → LangGraph 路由 → CrewAI 工具调用 → 租户校验 → 敏感操作审批 → 沙箱执行 → 审计与幂等`。Graphiti/Milvus、真实渠道、多节点高可用和高并发均冻结；可宣称“代表性自托管端点上的真实 CrewAI 工具调用”，不可宣称“真实权重模型能力”或生产可用。
 

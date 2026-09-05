@@ -7,7 +7,7 @@
 
 ## 一、一句结论
 
-系统定位为**面试级、单租户、低并发、人工审批、Shadow 的自托管作品**。当前仍为 RC5 生产候选、正式生产放量 `NO-GO`；**代表性自托管端点 + 真实 CrewAI 工具调用已闭环**，真实权重模型仍未验证。
+系统定位为**面试级、单租户、低并发、人工审批、Shadow 的自托管作品**。当前仍为 RC5 生产候选、正式生产放量 `NO-GO`；代表性端点的 CrewAI 安全链路已验证，Ollama `qwen3:4b` 原生工具调用曾成功但不稳定，CrewAI + Qwen 运行时及写能力仍未验收。
 
 ## 二、发布基线与一致性
 
@@ -23,7 +23,7 @@
 
 | 边界 | 定义 | 关键验证项 |
 |:---:|------|-----------|
-| **边界1 单元测试** | `pytest tests/`（内存/SQLite） | 默认回归与可选 CrewAI 集成需分开报告；当前 CrewAI 专项实测 **74 passed, 1 skipped**（含本地代表性端点），不等于真实权重验证。 |
+| **边界1 单元测试** | `pytest tests/`（内存/SQLite） | 当前全量实测 **416 passed, 35 skipped**；CrewAI/LLM 专项 **41 passed, 1 skipped**。Ollama 探针默认跳过，需显式启用。 |
 | **边界2 Mock/沙箱** | preview mock LLM、`sandbox_gateway`、沙箱并发 | N=256 沙箱并发 submit=1/FAIL 收敛 compensated；RpoExceeded 告警真实运行态闭环（合成钻取源）；能力矩阵/写门控 |
 | **边界3 PostgreSQL/RLS 实测** | 真实 PG 数据面 | RLS 动态 B1–B5 全拦；真实 PG 并发 N=256；DR 加密恢复 RTO=0.643s/RPO≤900s 上界；全新库 clean migrate exit 0。★取证多为 preview+一次性独立测试库（非 `after-sales-prod` 专栈实机，生产栈数据面复验＝部署期执行项） |
 | **边界4 真实生产外部依赖** | 真实资产/生产实机 | **全部 BLOCKED-需外部**：受信 CA/域名、真实权重模型端点、真实资金渠道、书面确认真实租户、7 天观察 |
@@ -34,7 +34,7 @@
 |---|---|---|
 | `mock` | 单元测试/回归；不可进入写白名单 | `MockLLM` 与 `self_hosted_server.py` 代表性端点 |
 | `representative_self_hosted` | 协议、SSE、异常和安全链路演示 | 本地 OpenAI-compatible 端点；非真实权重 |
-| `real_weight_candidate` | 真实权重端点评测后，候选写白名单 | 当前未完成 |
+| `real_weight_candidate` | 真实权重端点评测后，候选查询/工具调用 | qwen3:4b 协议探针不稳定；CrewAI 运行时待适配 |
 | `production_approved` | 正式生产放量 | 当前不适用 |
 
 ## 四、已验证（GO 的能力基础 ✅）
@@ -62,7 +62,7 @@
 
 - ✅ **已提交收口**：阶段一 rc3 发布基线收口提交已纳入（测试默认写临时目录 + 真实 390/34 口径 + uv.lock 不入库），**基线提交时刻工作区 clean**（以 `release/v1.0.0-rc3` 为锚）。**当前 working tree 因团队证据编辑非 clean**。
 - ✅ 重定稿 `GO_NO_GO.md` / `FINAL_ACCEPTANCE.md`，统一四证据边界，消除"已完成/未接入"矛盾（修正 rc1→cd743d3、A8/G9 生产栈健康已证实、迁移版本 4 点表述；**rc3 以基线尖端为锚** 口径）。
-- ✅ 统一 `README.md` 生产候选版口径；历史 rc4 基线数字保留为历史记录，当前工作树全量回归为 **414 passed / 34 skipped**（开启代表性 CrewAI 集成，EXIT=0；2026-09-05）。
+- ✅ 统一 `README.md` 生产候选版口径；历史 RC4/RC5 数字保留为历史记录，当前工作树全量回归为 **416 passed / 35 skipped**（EXIT=0；2026-09-05）。
 - ✅ `release/v1.0.0-rc3` 标签（→ 基线尖端）；镜像 digest、迁移版本（4 点）与 tag 一致。
 - ✅ 所有未验证项均有明确责任人 + 解锁条件（见 §五）。
 

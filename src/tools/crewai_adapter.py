@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Optional
 
@@ -380,15 +381,38 @@ class CrewAIToolRouter:
         # OpenAI-compatible base_url，不会切换到公有 OpenAI 服务。
         if "/" not in model:
             model = f"openai/{model}"
-        return _SelfHostedLLM(model=model, base_url=base_url, api_key=api_key)
+        llm_kwargs = {
+            "model": model,
+            "base_url": base_url,
+            "api_key": api_key,
+            "timeout": float(getattr(s, "llm_timeout_seconds", 10.0)),
+            "max_tokens": int(getattr(s, "llm_max_tokens", 512)),
+        }
+        if bool(getattr(s, "llm_disable_thinking", False)):
+            # Ollama 的 OpenAI-compatible API 接受该字段以关闭 Qwen3 的思考输出；
+            # 不支持它的 LiteLLM provider 会在本地参数归一化时忽略。
+            llm_kwargs["think"] = False
+        return _SelfHostedLLM(**llm_kwargs)
 
     @staticmethod
-    def _task_description(intent: str, tool_name: str) -> str:
-        """任务描述：仅向模型暴露用途与可用工具，**不含** tenant_id/user_id/role/订单等身份数据。"""
+    def _task_description(intent: str, tool_name: str, params: dict) -> str:
+        """构造最小任务描述，不把服务端身份上下文暴露给模型。
+
+        ``order_id`` 是已由上游解析并校验过的业务定位字段，不是身份字段。真实
+        工具调用需要这个值才能避免模型猜测订单号；其余业务参数和全部
+        ``tenant_id`` / ``user_id`` / ``role`` 均不进入提示词。
+        """
         tool_desc = next((t["description"] for t in BUSINESS_TOOL_SCHEMAS if t["name"] == tool_name),
                          tool_name)
-        return (f"请处理售后意图「{intent}」。使用已绑定工具「{tool_name}」完成：{tool_desc}。"
-                "只调用已授权工具，不得编造订单或金额数据；若无法确定则转人工。")
+        description = (
+            f"请处理售后意图「{intent}」。使用已绑定工具「{tool_name}」完成：{tool_desc}。"
+        )
+        # 只接受预期的订单号格式，避免将任意用户文本回灌到工具选择提示词。
+        order_id = params.get("order_id")
+        if isinstance(order_id, str) and re.fullmatch(r"ORD-\d+", order_id):
+            description += f"服务端已确认本次订单号为「{order_id}」，调用工具时必须使用该订单号。"
+        description += "只调用已授权工具，不得编造订单或金额数据；若无法确定则转人工。"
+        return description
 
     def run_business_task(self, intent: str, ctx: dict, params: dict | None = None) -> dict:
         """真实调用链入口。
@@ -456,16 +480,22 @@ class CrewAIToolRouter:
             ) from exc
         # 构造绑定当前意图工具集的子智能体（真实调用链：Agent → tools → 工具 → adapter 校验）。
         tools = self._build_bound_tools(crewai_tool, intent, dict(ctx))
+        crew_llm = self._crewai_llm()
         agent = Agent(
             role=f"售后-{tool_name}",
             goal="只在租户/资格校验通过前提下完成售后任务；写操作只提交审批，不直接执行",
             backstory="完全自托管售后子智能体，只调用已授权工具",
-            llm=self._crewai_llm(),
+            llm=crew_llm,
+            # Bound the local demo loop: a small self-hosted model must fail
+            # closed quickly instead of spinning through unbounded ReAct turns.
+            max_iter=3,
+            max_execution_time=30,
+            function_calling_llm=crew_llm,
             allow_delegation=self.allow_delegation,
             tools=tools,
         )
         task = Task(
-            description=self._task_description(intent, tool_name),
+            description=self._task_description(intent, tool_name, params),
             expected_output="工具调用结果摘要",
             agent=agent,
         )

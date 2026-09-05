@@ -28,7 +28,7 @@ PostgreSQL 数据面原有 33 个跳过测试已全部实际执行并通过：
 1 skipped
 ```
 
-当前全量回归在启用 `RUN_CREWAI_INTEGRATION=1` 时为 `414 passed / 34 skipped`；跳过项主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。CrewAI 专项已在独立环境通过，代表性自托管端点上的工具实际执行已验证。
+当前工作树最新全量回归为 `416 passed / 35 skipped`；跳过项主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试，另有 1 项 Ollama 探针默认跳过。代表性端点的 CrewAI 安全链路已验证；Ollama `qwen3:4b` 原生 `tool_calls` 曾成功但重复运行不稳定，CrewAI + Qwen 运行时仍未宣称通过。
 
 ## 本轮发现并修复
 

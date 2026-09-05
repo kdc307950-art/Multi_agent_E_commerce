@@ -12,18 +12,19 @@
 
 ## 已验证
 
-- 代表性自托管 OpenAI-compatible 端点上的真实 CrewAI 工具调用
-- 查询订单工具实际执行
+- 代表性端点上的 CrewAI 工具绑定与安全链路（测试环境）
+- Ollama `qwen3:4b` 原生 `tool_calls` 探针曾成功但重复运行不稳定；CrewAI + Qwen 运行时仍未通过
 - 退款创建 operation/approval，审批前保持 pending
 - 审批后才进入 Shadow 执行
 - 重复请求幂等、跨租户拒绝、模型身份字段隔离
 - 端点异常、非法工具结果和非白名单模型 fail-closed 转人工
-- CrewAI 专项回归：`74 passed, 1 skipped`
-- 全量回归（`RUN_CREWAI_INTEGRATION=1`）：`414 passed, 34 skipped`，EXIT=0
+- CrewAI 专项回归：`41 passed, 1 skipped`（当前验收环境）
+- 全量回归：`416 passed, 35 skipped`，EXIT=0（2026-09-05）
 
 ## 明确不宣称
 
-- 当前端点不是 7B/8B 真实权重模型
+- CrewAI + Qwen 的真实运行时工具执行尚未宣称通过
+- qwen3:4b 仅证明本机端点协议兼容，不证明写操作可靠性
 - 不宣称真实资金生产、不宣称真实租户上线
 - 不宣称高并发、多机高可用、Graphiti/Milvus 已落地
 

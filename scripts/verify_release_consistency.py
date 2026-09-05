@@ -63,8 +63,8 @@ def main() -> int:
     required = {
         "Go/No-Go current tag": args.tag,
         "RC5 report tag": args.tag,
-        "RC5 test count": "414 passed",
-        "RC5 skipped count": "34 skipped",
+        "RC5 test count": "416 passed",
+        "RC5 skipped count": "35 skipped",
     }
     for label, needle in required.items():
         source = go_no_go if label.startswith("Go/") else rc5_report

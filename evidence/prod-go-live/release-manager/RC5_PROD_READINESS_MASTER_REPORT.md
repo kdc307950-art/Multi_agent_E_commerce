@@ -29,9 +29,9 @@
 
 ## 测试口径
 
-当前工作树最新回归为 `414 passed / 0 failed / 34 skipped / EXIT=0`（`RUN_CREWAI_INTEGRATION=1`）。34 个跳过项主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试；CrewAI 专项已通过。该数字不能等同于真实权重模型或生产验证通过。
+当前工作树最新回归为 `416 passed / 0 failed / 35 skipped / EXIT=0`（2026-09-05）。35 个跳过项主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试，另有 1 项 Ollama 探针默认跳过；该数字不能等同于 CrewAI + Qwen 运行时或生产验证通过。
 
-2026-09-05 的补充验证确认：CrewAI 专项 `74 passed / 1 skipped`，全量回归 `414 passed / 34 skipped`。跳过项与数据库环境有关，不代表失败；真实权重模型仍属于边界4阻断项。该结果由面试冻结提交记录，不覆盖历史 RC5 发布标签。
+2026-09-05 的补充验证确认：CrewAI/LLM 专项 `41 passed / 1 skipped`，全量回归 `416 passed / 35 skipped`。Ollama `qwen3:4b` 原生 `tool_calls` 探针曾成功但重复运行不稳定；CrewAI + Qwen 运行时仍待适配，写白名单保持关闭。该结果不覆盖历史 RC5 发布标签。
 
 ## 生产阻塞项
 
