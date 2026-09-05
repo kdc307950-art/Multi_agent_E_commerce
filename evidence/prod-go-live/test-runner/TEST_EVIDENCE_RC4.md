@@ -1,5 +1,6 @@
-# TEST_EVIDENCE_RC4 — RC4-candidate 权威测试证据（阶段一收口 · 唯一权威口径）
+# TEST_EVIDENCE_RC4 — RC4-candidate 权威测试证据（阶段一收口）
 
+> **⚠️ 已被取代**：本文件记录**阶段一 rc4-candidate（396/34）**的历史权威口径；**阶段二~四综合态（rc5-candidate）权威口径为 `411 passed / 34 skipped / EXIT=0`**，见 `TEST_EVIDENCE_RC5.md`（单一权威数字以 RC5/`RC4_PROD_READINESS_MASTER_REPORT.md` 为准）。
 > **角色**：release-manager（发布经理）· rc4-productionization 团队 · 任务 t1
 > **用途**：固化 `pytest tests/` 的**唯一权威测试快照**，作为 `release/v1.0.0-rc4-candidate` 基线的"单元测试链路"收口证据。
 > **诚实声明**：本文件只陈述**已有运行日志**真正支持的计数（来自 captain 实测日志 `pytest_captain_baseline.log`），**不虚构**任何"已达标/已放量"结论；真实模型、真实租户、受信 CA、目标服务器、7 天 shadow 仍为 **BLOCKED/NO-GO**。

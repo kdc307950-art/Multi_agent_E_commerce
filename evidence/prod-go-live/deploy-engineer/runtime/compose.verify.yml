@@ -1,0 +1,50 @@
+# 沙箱网关运行态验证专用 Compose（独立 project：after-sales-verify，不触碰 preview/prod）。
+# 复用已构建的 after-sales-prod-api 镜像（--no-build），仅拉起重放白盒的 sandbox-gateway 服务，
+# 并跑一个 verify-runner 在同内网执行真实 HTTP 验证。数据落在 data/verify-sandbox（隔离）。
+# 网关只挂 internal 网络（verify-net），不发布任何宿主端口。
+# 用法（仓库根目录）：docker compose -f compose.verify.yml up -d --build  然后查看日志
+name: after-sales-verify
+
+services:
+  sandbox-gateway:
+    image: after-sales-prod-api:latest
+    command: ["python", "-m", "src.execution.sandbox_gateway"]
+    environment:
+      - SANDBOX_GATEWAY_DB=/data/sandbox_gateway.db
+      - SANDBOX_GATEWAY_HOST=0.0.0.0
+      - SANDBOX_GATEWAY_PORT=8010
+      - SANDBOX_GATEWAY_API_KEY=verify-gateway-key
+    volumes:
+      - ./data/verify-sandbox:/data
+    networks: [verify-net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8010),3); s.close()"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: "no"
+
+  verify-runner:
+    image: after-sales-prod-api:latest
+    command: ["python", "/app/verify/run_sandbox_runtime_verify.py"]
+    environment:
+      - PYTHONPATH=/app
+      - GATEWAY_BASE_URL=http://sandbox-gateway:8010
+      - GATEWAY_API_KEY=verify-gateway-key
+      - CALLBACK_HMAC_SECRET=verify-callback-secret
+      - VERIFY_DB=/data/sandbox_gateway.db
+      - VERIFY_OUT=/out/runtime_verify_report.json
+    volumes:
+      - ./data/verify-sandbox:/data
+      - ./_verify_runtime:/app/verify:ro
+      - ./evidence/prod-go-live/deploy-engineer/runtime:/out:rw
+    networks: [verify-net]
+    depends_on:
+      sandbox-gateway:
+        condition: service_healthy
+    restart: "no"
+
+networks:
+  verify-net:
+    driver: bridge

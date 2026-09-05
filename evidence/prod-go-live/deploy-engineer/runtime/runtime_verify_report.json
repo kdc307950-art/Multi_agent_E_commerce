@@ -1,0 +1,58 @@
+{
+  "gateway_reachable_via_internal_http": true,
+  "idempotency": {
+    "same_tenant_same_key_external_txn_same": true,
+    "status_both_succeeded": true,
+    "amount_is_order_paid_299": true,
+    "external_txn_id": "txn-0660d16ee1a944ab",
+    "cross_tenant_same_key_external_txn_differ": true,
+    "cross_tenant_query_amount_a_10": true,
+    "cross_tenant_query_amount_b_20": true,
+    "cross_tenant_query_not_found": true,
+    "concurrent_16_same_key_unique_txn": true,
+    "server_side_single_row": true,
+    "server_side_single_row_cross_tenant_A": true,
+    "server_side_single_row_cross_tenant_B": true
+  },
+  "callback_security": {
+    "correct_hmac_confirmed": true,
+    "wrong_hmac_signature_invalid": true,
+    "replay_same_nonce_replay": true,
+    "terminal_locked_new_nonce": true,
+    "unknown_execution_not_found": true,
+    "cross_tenant_callback_not_found": true,
+    "tampered_amount_amount_mismatch": true
+  },
+  "fault_injection": {
+    "http_500": "upstream_5xx",
+    "http_503": "upstream_5xx",
+    "timeout": "timeout",
+    "gateway_down": "network"
+  },
+  "reconcile": {
+    "overdue_reconcile_confirmed": true,
+    "reconcile_confirmed_count_ge_1": true,
+    "missing_external_reconcile_mismatch": true,
+    "missing_external_operation_human_handoff": true,
+    "reconcile_mismatch_count_ge_1": true,
+    "audit_confirmed_action_written": true,
+    "audit_confirmed_carries_operation_id": true,
+    "audit_mismatch_action_written": true,
+    "audit_mismatch_carries_reason": true,
+    "traceability_fields_confirmed_record": {
+      "tenant_id": "TENANT-A",
+      "operation_id": "46fa01b1-1423-41c0-8e32-e2133062934f",
+      "external_operation_id": "txn-c556a89d3dd84c56",
+      "execution_status": "confirmed"
+    },
+    "traceability_fields_mismatched_record": {
+      "tenant_id": "TENANT-A",
+      "operation_id": "e49dd1a9-871d-4956-8ee9-4e782728ae4d",
+      "external_operation_id": "txn-does-not-exist",
+      "execution_status": "mismatched"
+    }
+  },
+  "gateway_base_url": "http://sandbox-gateway:8010",
+  "elapsed_seconds": 0.83,
+  "note": "与 sandbox-gateway 共卷读写 /data/sandbox_gateway.db 做服务端单行复核；回调/对账用引擎+内存 store 复核状态机收敛语义。全部不触真实资金。"
+}

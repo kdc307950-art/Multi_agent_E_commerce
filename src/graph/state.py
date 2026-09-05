@@ -62,6 +62,9 @@ class AgentState(TypedDict, total=False):
     # 工具调用
     tool_calls: list[dict]
     tool_results: list[dict]
+    # CrewAI 主链路（可选，仅 crewai_enabled 时写入）：模型可控，不含 tenant/user/role 身份。
+    tool: Optional[str]               # 经 crewai 选定的工具名（query_order/process_refund/...）
+    crew_result: Optional[str]        # crewai 委派结果摘要
 
     # RAG
     retrieved_docs: list[dict]

@@ -23,7 +23,7 @@ import json
 import time
 from typing import Optional
 
-from src.core.types import PendingAction, generate_operation_key
+from src.core.types import OperationStatus, PendingAction, generate_operation_key
 from src.tools import AdapterError, EcommerceAdapter
 
 
@@ -196,6 +196,10 @@ class CrewAIToolRouter:
         self.settings = settings
         self.allow_delegation = allow_delegation
         self._mock = MockCrewAIBackend()
+        # 最近一次写工具返回的业务 dict（operation_id/approval_id/refund_amount/status）。
+        # 供 `_run_real` 把写元数据上抛到返回顶层，使主图能进入唯一 human_approval；
+        # 每次 run_business_task 起始重置，避免跨调用残留（路由在 builder 中按次构造）。
+        self._last_write_meta: Optional[dict] = None
 
     @staticmethod
     def resolve_tool(intent: str) -> str:
@@ -291,6 +295,9 @@ class CrewAIToolRouter:
             """退款资格判定并触发人工审批（写操作，只创建待审批记录，绝不直接退款）。
             参数：order_id（ORD-数字格式）、reason（退款理由）。"""
             result = self._do_process_refund(ctx, {"order_id": order_id, "reason": reason})
+            # 把写工具的业务 dict 透传给 `_run_real`（顶层上抛 approval_id/operation_id），
+            # 使主图 refund 分支能识别；同时返回给 crew 的仍是 JSON 字符串（工具契约）。
+            self._last_write_meta = dict(result)
             return json.dumps(result, ensure_ascii=False)
 
         return crewai_tool(process_refund)
@@ -362,17 +369,56 @@ class CrewAIToolRouter:
         - enabled + crewai 可导入：构造真实 CrewAI Crew（子智能体绑定真实工具对象）并执行。
         - 否则：用 MockCrewAIBackend 记录调用链（测试/兜底）。
         无论哪条路径，工具返回结果均须再经 adapter 校验（上层完成），本层只做委派/路由。
+
+        孤儿清理：真实链路失败（委派异常/写工具已建 pending 后失败）时，若已创建待审批
+        operation/approval，会回滚为「拒绝/转人工」并审计留痕，避免留下无审批关联的孤儿记录。
         """
         tool_name = self.resolve_tool(intent)
         params = dict(params or {})
-        if self.enabled:
+        if not self.enabled:
+            return self._mock.dispatch(intent, tool_name, {k: v for k, v in ctx.items()}, params)
+        # 起始重置：避免上一次调用的写元数据残留（路由在 builder 中按次构造，此处双保险）。
+        self._last_write_meta = None
+        try:
             return self._run_real(intent, tool_name, ctx, params)
-        return self._mock.dispatch(intent, tool_name, {k: v for k, v in ctx.items()}, params)
+        except Exception as exc:
+            # 委派失败：若写工具已创建待审批 operation/approval（孤儿），回滚/补偿并留痕。
+            self._rollback_orphan_write(ctx, exc)
+            raise
+
+    def _extract_write_meta(self, crew_result: str) -> dict:
+        """从 crew 工具输出字符串中恢复业务 dict（写工具返回值是 json 字符串）。
+
+        作为 `_last_write_meta` 的兜底：真实 crewai 环境下 kickoff 输出格式不一，若工具闭包
+        未直接回传 meta，仍从输出字符串解析出 operation_id/approval_id/refund_amount/status。
+        """
+        if not crew_result:
+            return {}
+        # 逐段尝试从字符串中提取 JSON 对象（容忍文本包裹/换行）。
+        import re
+        meta: dict = {}
+        for m in re.finditer(r"\{[^{}]*\}", crew_result):
+            chunk = m.group(0)
+            try:
+                data = json.loads(chunk)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            if data.get("operation_id") or data.get("approval_id"):
+                for k in ("status", "operation_id", "approval_id", "refund_amount", "message"):
+                    if data.get(k) is not None:
+                        meta[k] = data[k]
+                break
+        return meta
 
     def _run_real(self, intent: str, tool_name: str, ctx: dict, params: dict) -> dict:
         """构造并执行真实 CrewAI 子智能体，把**真实工具对象**绑定到 Agent（非仅描述文本）。
 
         依赖 crewai（本环境未安装时抛 CrewAIIntegrationError；集成测试在具备 crewai 的环境验证）。
+        返回 dict 一定带 `tool/intent/crew_result`；写路径还会把 `approval_id/operation_id/
+        refund_amount/status` 上抛到顶层（与 `_do_process_refund` 形状对齐），使主图 refund 分支
+        能进入唯一 human_approval。
         """
         try:
             from crewai import Agent, Crew, Task  # type: ignore
@@ -398,8 +444,62 @@ class CrewAIToolRouter:
         )
         crew = Crew(agents=[agent], tasks=[task], verbose=False)
         result = crew.kickoff()
-        return {"tool": tool_name, "intent": intent,
-                "crew_result": str(result) if result is not None else ""}
+        crew_result = str(result) if result is not None else ""
+        out = {"tool": tool_name, "intent": intent, "crew_result": crew_result}
+        # 上抛写元数据到顶层（与 `_do_process_refund` 形状对齐），使主图 refund 分支进入 human_approval。
+        meta = self._last_write_meta if isinstance(self._last_write_meta, dict) else {}
+        if not meta:
+            meta = self._extract_write_meta(crew_result)
+        if meta:
+            for k in ("status", "operation_id", "approval_id", "refund_amount"):
+                if meta.get(k) is not None:
+                    out[k] = meta[k]
+            if meta.get("message"):
+                out["approval_reason"] = meta["message"]
+        return out
+
+    def _rollback_orphan_write(self, ctx: dict, exc: Exception) -> None:
+        """回滚/补偿已创建待审批但最终委派失败的孤儿 operation/approval。
+
+        仅做「拒绝 + 转人工」的收口（绝不执行）；若写工具在建 operation 之前就失败（如模型不在
+        白名单、资格不符、缺租户上下文），则不产生任何记录，无需回滚。审计留痕以便追溯。
+        """
+        meta = self._last_write_meta if isinstance(self._last_write_meta, dict) else {}
+        operation_id = meta.get("operation_id")
+        approval_id = meta.get("approval_id")
+        tenant_id = ctx.get("tenant_id")
+        if not tenant_id or not operation_id:
+            return
+        if self.store is None:
+            return
+        reason = f"CrewAI 委派失败，转人工对账（孤儿清理）：{exc}"
+        try:
+            self.store.decide_approval(
+                tenant_id, approval_id, "system", False, "CrewAI 委派失败，转人工对账（孤儿清理）",
+                time.time(),
+            )
+            self.store.update_operation(
+                tenant_id, operation_id, OperationStatus.HUMAN_HANDOFF,
+                {"error": str(exc), "message": reason},
+            )
+        except Exception:  # noqa: BLE001 —— 回滚兜底：不因回滚失败掩盖原始委派异常。
+            # 若 decide_approval 失败（如 approval 不存在），至少把 operation 置为转人工收口。
+            try:
+                self.store.update_operation(
+                    tenant_id, operation_id, OperationStatus.HUMAN_HANDOFF,
+                    {"error": str(exc), "message": reason},
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        # 审计留痕。
+        try:
+            self.store.append_audit(
+                tenant_id, ctx.get("user_id", ""), "crewai.orphan_write_rolled_back",
+                "operation", operation_id,
+                {"approval_id": approval_id, "error": str(exc)}, time.time(),
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     @property
     def mock_calls(self) -> list[dict]:
