@@ -9,15 +9,14 @@
 > 一律标注为部署期执行项。
 > **定稿依据说明（git 实测，唯一事实来源）**：
 > **基线 commit 链**：`7941246`（已测功能）→ `ad168ef`/`8be2d97`/`03819a8`（可复现构建）→ `3268a1c`（clean-context 断言）→ `696444a`（migrations 复合外键修复）→ `8ddca48`（接受运行面+部署配置）→ `cd743d3`（`BUSINESS_DATA_BACKEND=postgres`）→ `cde30fb`（T1/T7 发布基线证据+迁移修复复验+生产栈健康）。
-> `release/v1.0.0-rc1` = `cd743d3`（annotated tag 对象 `2120c4b`，历史锚点）。`release/v1.0.0-rc2` = annotated tag 对象 `290b830` → commit `fa7c9a3`（历史锚点，不可移动；`bca4861` 为 rc2 谱系早期收口 commit 父提交，非 rc2 锚）。**当前发布锚点 = `release/v1.0.0-rc4-candidate`**（自 `release/v1.0.0-rc3` 之上叠加"阶段一 rc4-candidate 收口"提交；`release/v1.0.0-rc3` = annotated tag 对象 `d1d2867` → commit `3ccab5c` 为历史锚点）。
-> **工作区 `git status --porcelain` clean**（阶段一已提交收口：统一发布口径 + 归档证据 + 清理临时产物）。运行面源码与部署配置已入 `cd743d3`/`cde30fb`/`59e37f2`；本次 rc3 校订项 `README.md`（生产候选口径）与 `IMAGE_DIGESTS.json`（rc3 口径）已随阶段一收口提交纳入。
+> `release/v1.0.0-rc1` = `cd743d3`（annotated tag 对象 `2120c4b`，历史锚点）。`release/v1.0.0-rc2` = annotated tag 对象 `290b830` → commit `fa7c9a3`（历史锚点，不可移动；`bca4861` 为 rc2 谱系早期收口 commit 父提交，非 rc2 锚）。`release/v1.0.0-rc3` = annotated tag 对象 `d1d2867` → commit `3ccab5c`，历史锚点。`release/v1.0.0-rc4-candidate` 为历史阶段一候选。**当前发布锚点 = `release/v1.0.0-rc5-candidate`**，对应当前分支 HEAD `8d44e80`；RC4/RC3 仅作历史证据，不得作为当前部署引用。
+> **RC5 tag 基线在冻结时 `git status --porcelain` clean**。2026-09-05 的 PostgreSQL/RLS 实机补强与发布口径修复属于 tag 后待提交工作树，当前不能继续宣称工作区 clean；形成下一候选标签前，必须重新绑定 commit、镜像 digest 与测试证据。
 > 镜像 digest 为**工作树构建、非字节级可复现**（见 G2 边界标注）；后续 "rc2 commit + `git archive` clean-context 重建" 列为部署期执行项。
 
 > **rc2 锚定口径修正（✨ 定稿 · release-manager 2026-09-05 · 经队长 git 复测确认）**：
 > `release/v1.0.0-rc2` = annotated tag 对象 **`290b830`** → commit **`fa7c9a3`**（rc2 文档收口尖端）。**`bca4861` 为 rc2 谱系早期"阶段一 rc2 基线收口" commit（祖先），不是 rc2 tag/锚**，仅作历史留存。本文档及 `FINAL_ACCEPTANCE.md` 凡涉及 rc2 锚定的表述均以此为准；rc1 锚保留 `cd743d3` 不变。已同步修正 `PROJECT_STATUS.md`/`README.md`/`IMAGE_DIGESTS.json`/`BASELINE_LOCK.md`/`RELEASE_CHECKLIST.md`。基线链定稿：`7941246→3268a1c(可复现构建)→696444a→8ddca48→cd743d3(rc1)→cde30fb→59e37f2→bca4861(rc2 早期收口 commit, 祖先)→fa7c9a3(rc2 tag 目标)→阶段一 rc3 收口(3ccab5c=rc3 tag 目标==HEAD)`。
 
-> **rc4-candidate 更新记录（✨ RC4-prod-readiness · release-manager 2026-09-05）**：
-> 当前权威发布锚点由 rc3（`release/v1.0.0-rc3`→`3ccab5c`）推进至 **rc4-candidate（`release/v1.0.0-rc4-candidate`）**；rc1/rc2/rc3 均为**不可移动历史锚点**。权威测试快照更新为 **396 passed, 34 skipped, EXIT=0**（41.92s，`evidence/prod-go-live/test-runner/pytest_captain_baseline.log`；34 skipped = 33 项 PostgreSQL 无 `DATABASE_URL` + 1 项 CrewAI 无 crewai）。**Go/No-Go 结论不变：当前仍 `NO-GO`**——受信 TLS(G10)、真实租户书面确认(G13)、真实权重模型评测(G5)、7 天观察(G14)、真实资金链路(G6) 仍为 BLOCKED-需外部。
+> **rc5-candidate 更新记录（release-manager · 2026-09-05）**：当前权威发布锚点已推进至 **`release/v1.0.0-rc5-candidate` → `8d44e80`**。阶段二~四综合测试证据为 **411 passed / 0 failed / 34 skipped / EXIT=0**；34 skipped = 33 项 PostgreSQL（无 `DATABASE_URL`）+ 1 项真实 CrewAI（无 `crewai`/真实自托管模型端点）。**Go/No-Go 结论不变：当前仍 `NO-GO`**——真实模型、真实租户、受信 TLS、目标服务器、真实资金链路和 7 天观察仍为外部阻塞项。
 
 - 记录 ID：`GONOGO-PROD-20260904`
 - 定稿时间：2026-09-04（t6）

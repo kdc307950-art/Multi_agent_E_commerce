@@ -53,6 +53,79 @@ def create_app() -> FastAPI:
         messages = body.get("messages", [])
         text = "\n".join(str(m.get("content", "")) for m in messages)
 
+        # CrewAI/LiteLLM sends the bound tool schemas in the request. Return a
+        # genuine OpenAI-compatible tool call so the local representative
+        # endpoint exercises the same Agent -> tool -> result loop.
+        tools = body.get("tools") or []
+        if tools and not any(m.get("role") == "tool" for m in messages if isinstance(m, dict)):
+            tool_name = _select_tool(text, tools)
+            if tool_name:
+                arguments = {"order_id": "ORD-001"} if tool_name in {
+                    "query_order", "process_refund", "process_return",
+                    "update_return_address",
+                } else {}
+                if tool_name in {"process_refund", "process_return"}:
+                    arguments["reason"] = "用户申请"
+                call_id = "call-selfhosted-1"
+                return JSONResponse({
+                    "id": "cmpl-selfhosted-tool",
+                    "object": "chat.completion",
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [{
+                                "id": call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": json.dumps(arguments, ensure_ascii=False),
+                                },
+                            }],
+                        },
+                        "finish_reason": "tool_calls",
+                    }],
+                })
+
+        # CrewAI 0.152 starts its ReAct executor with a request that does not
+        # include tool schemas.  For an OpenAI-compatible self-hosted endpoint
+        # we therefore emit the standard CrewAI action envelope on the first
+        # turn; this lets CrewAI invoke the bound Python function, then sends
+        # the observed tool result back for the final response.  The direct
+        # ``tools`` branch above remains the raw OpenAI ``tool_calls`` probe.
+        has_tool_observation = any(marker in text for marker in (
+            "状态:", "金额:", "pending_approval", "已转为人工处理",
+        ))
+        if not tools and "Current Task:" in text and not has_tool_observation:
+            for name in ("query_order", "process_refund", "process_return", "update_return_address",
+                         "escalate_ticket"):
+                if name in text:
+                    args = {"order_id": "ORD-001"} if name != "escalate_ticket" else {}
+                    if name in {"process_refund", "process_return"}:
+                        args["reason"] = "用户申请"
+                    return JSONResponse({
+                        "id": "cmpl-selfhosted-react-action",
+                        "object": "chat.completion",
+                        "model": model,
+                        "choices": [{"index": 0, "message": {
+                            "role": "assistant",
+                            "content": f"Action: {name}\nAction Input: {json.dumps(args, ensure_ascii=False)}",
+                        }, "finish_reason": "stop"}],
+                    })
+
+        if not tools and "Observation:" in text:
+            observation = text.rsplit("Observation:", 1)[-1].strip()
+            return JSONResponse({
+                "id": "cmpl-selfhosted-react-final",
+                "object": "chat.completion",
+                "model": model,
+                "choices": [{"index": 0, "message": {
+                    "role": "assistant", "content": observation,
+                }, "finish_reason": "stop"}],
+            })
+
         # 依据提示词特征路由到 MockLLM 契约方法（与 OpenAICompatibleLLM 的 prompt 对齐）。
         content = _route(_ENGINE, text)
 
@@ -65,6 +138,26 @@ def create_app() -> FastAPI:
         })
 
     return app
+
+
+def _select_tool(text: str, tools: list[dict]) -> str | None:
+    """Select the first allowed business tool matching the task intent."""
+    names = []
+    for item in tools:
+        fn = item.get("function", {}) if isinstance(item, dict) else {}
+        name = fn.get("name")
+        if isinstance(name, str):
+            names.append(name)
+    for marker, preferred in (
+        ("query_order", "query_order"),
+        ("process_refund", "process_refund"),
+        ("process_return", "process_return"),
+        ("update_return_address", "update_return_address"),
+        ("escalate_ticket", "escalate_ticket"),
+    ):
+        if marker in text and preferred in names:
+            return preferred
+    return names[0] if names else None
 
 
 def _route(engine: MockLLM, text: str) -> str:

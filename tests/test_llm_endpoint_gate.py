@@ -139,7 +139,9 @@ def test_capability_only_eval_passed_whitelisted(tmp_path):
     report_path = str(tmp_path / "llm_candidate_eval.json")
     import json
     with open(report_path, "w", encoding="utf-8") as fh:
-        json.dump({"qwen2.5-max": {"write_op_pass": True,
+        json.dump({"qwen2.5-max": {"evaluation_backend": "real_weight",
+                                   "whitelist_eligible": True,
+                                   "write_op_pass": True,
                                    "cases": [{"case_id": "writeop-refund-whitelist",
                                               "passed": True}]}}, fh, ensure_ascii=False)
     s = Settings(env="preview", high_confidence_models="qwen2.5-max",
@@ -147,6 +149,48 @@ def test_capability_only_eval_passed_whitelisted(tmp_path):
     assert resolve_high_confidence_models(s) == frozenset({"qwen2.5-max"})
     assert capability_ok("qwen2.5-max", s) is True
     assert capability_ok("self-hosted-model", s) is False
+
+
+def test_mock_eval_report_never_enters_write_whitelist(tmp_path):
+    """Mock 回归评测可以通过，但不能证明真实权重模型的写能力。"""
+    report_path = str(tmp_path / "mock_eval.json")
+    import json
+    with open(report_path, "w", encoding="utf-8") as fh:
+        json.dump({"mock-candidate": {"evaluation_backend": "mock",
+                                       "whitelist_eligible": False,
+                                       "write_op_pass": True}}, fh)
+    s = Settings(env="preview", high_confidence_models="mock-candidate",
+                 llm_eval_report_path=report_path)
+    assert resolve_high_confidence_models(s) == frozenset()
+    assert capability_ok("mock-candidate", s) is False
+
+
+def test_representative_endpoint_report_never_enters_write_whitelist(tmp_path):
+    """OpenAI-compatible 协议端点不是实际权重模型能力的证明。"""
+    report_path = str(tmp_path / "representative_eval.json")
+    import json
+    with open(report_path, "w", encoding="utf-8") as fh:
+        json.dump({"representative-candidate": {
+            "evaluation_backend": "representative_self_hosted",
+            "whitelist_eligible": False,
+            "write_op_pass": True,
+        }}, fh)
+    s = Settings(env="preview", high_confidence_models="representative-candidate",
+                 llm_eval_report_path=report_path)
+    assert resolve_high_confidence_models(s) == frozenset()
+    assert capability_ok("representative-candidate", s) is False
+
+
+def test_dev_explicit_whitelist_does_not_override_ineligible_report(tmp_path):
+    report_path = str(tmp_path / "representative_eval.json")
+    import json
+    with open(report_path, "w", encoding="utf-8") as fh:
+        json.dump({"demo": {"evaluation_backend": "representative_self_hosted",
+                             "whitelist_eligible": False,
+                             "write_op_pass": True}}, fh)
+    s = Settings(env="development", high_confidence_models="demo",
+                 llm_eval_report_path=report_path)
+    assert resolve_high_confidence_models(s) == frozenset()
 
 
 def test_eval_runner_marks_mock_write_op_pass():
@@ -362,7 +406,9 @@ def test_whitelist_model_still_requires_approval(self_hosted_endpoint, tmp_path)
     import json
     report_path = str(tmp_path / "llm_candidate_eval.json")
     with open(report_path, "w", encoding="utf-8") as fh:
-        json.dump({"self-hosted-demo": {"write_op_pass": True,
+        json.dump({"self-hosted-demo": {"evaluation_backend": "real_weight",
+                                        "whitelist_eligible": True,
+                                        "write_op_pass": True,
                                         "cases": [{"case_id": "writeop-refund-whitelist",
                                                    "passed": True}]}}, fh, ensure_ascii=False)
     store = _eligible_store()

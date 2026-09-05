@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
+from src.auth.security import audit_security_denial
 from src.core.types import Role
 
 
@@ -36,10 +37,13 @@ def test_pg_audit_tenant_scoped_via_postgres_store(pg_store):
     store.create_tenant("TENANT-B", "B")
     store.add_membership("TENANT-B", "U-B", Role.CUSTOMER)
 
-    store.append_audit("TENANT-A", "U-A", "security.deny.cross_user", "session", "A:U",
-                       {"reason": "cross_user", "credential": "secret", "algorithm": "argon2id"})
-    store.append_audit("TENANT-B", "U-B", "security.deny.cross_tenant", "session", "B:U",
-                       {"reason": "cross_tenant"})
+    audit_security_denial(
+        store, "TENANT-A", "U-A", "cross_user", "session", "A:U",
+        {"credential": "secret", "algorithm": "argon2id"},
+    )
+    audit_security_denial(
+        store, "TENANT-B", "U-B", "cross_tenant", "session", "B:U",
+    )
 
     a = store.list_audit("TENANT-A")
     b = store.list_audit("TENANT-B")
@@ -63,8 +67,9 @@ def test_pg_audit_rls_zero_visible_without_tenant(pg_app_engine):
     try:
         store.create_tenant("TENANT-A", "A")
         store.add_membership("TENANT-A", "U-A", Role.CUSTOMER)
-        store.append_audit("TENANT-A", "U-A", "security.deny.z", "auth", "A:U",
-                           {"reason": "z", "order_id": "ORD-001"})
+        audit_security_denial(
+            store, "TENANT-A", "U-A", "z", "auth", "A:U", {"order_id": "ORD-001"},
+        )
     finally:
         store.close()
 

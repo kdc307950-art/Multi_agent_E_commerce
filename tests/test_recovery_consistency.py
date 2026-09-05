@@ -124,6 +124,7 @@ def test_recovery_post_restore_consistency_on_pg():
     """真实 PG：冷备 → 恢复到 langgraph_restore_test 临时库 → 一致性 + 租户边界校验。"""
     import os
     from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
     from src.infrastructure.postgres_store import PostgresStore, _to_sqlalchemy_url
     from tests.pg_helpers import make_pg_engine, reset_pg_schema, setup_runtime_role, app_runtime_dsn
 
@@ -156,26 +157,43 @@ def test_recovery_post_restore_consistency_on_pg():
     # 冷备（pg_dump -Fc）→ 恢复到临时库 langgraph_restore_test（用 owner/migrator 角色）。
     dsn = os.environ["DATABASE_URL"]
     restore_db = "langgraph_restore_test_consistency"
-    with eng.connect() as conn:
-        conn.execute(text("DROP DATABASE IF EXISTS %s" % restore_db))  # noqa: S608
-    # 用 owner 角色在独立连接创建临时库并经 pg_dump 全量复制（简化为 CREATE DATABASE TEMPLATE）。
-    with eng.connect() as conn:
-        # 冷备等价物：此处用迁移角色直接建临时库再随样本，RPO/RTO 由 dr-engineer 验收。
-        conn.execute(text("CREATE DATABASE %s WITH TEMPLATE langgraph" % restore_db))  # noqa: S608
-    # 恢复到临时库后，用运行角色 app_runtime 重连做一致性校验。
-    restore_url = app_runtime_dsn().rsplit("/", 1)[0] + "/" + restore_db
-    r_store = PostgresStore(restore_url)
-    ops_a = [o for o in r_store.list_operations("TENANT-A") if o.idempotency_key == "oprefund:TENANT-A:ORD-A:R1"]
-    ops_b = [o for o in r_store.list_operations("TENANT-B") if o.idempotency_key == "oprefund:TENANT-B:ORD-B:R1"]
-    assert len(ops_a) == 1 and len(ops_b) == 1
-    assert ops_a[0].operation_id != ops_b[0].operation_id  # 租户级幂等互不覆盖
-    execs_a = r_store.list_execution_records("TENANT-A")
-    assert any(e.status is ExecutionStatus.CONFIRMED for e in execs_a)
-    assert all(a.tenant_id == "TENANT-A" for a in r_store.list_audit("TENANT-A"))
-    r_store.close()
-    # 清理临时库
-    r_store2 = PostgresStore(app_runtime_dsn(), engine=eng)
-    r_store2.close()
-    with eng.connect() as conn:
-        conn.execute(text("DROP DATABASE IF EXISTS %s" % restore_db))  # noqa: S608
+    source_db = make_url(_to_sqlalchemy_url(dsn)).database or "langgraph"
+    admin_url = make_url(_to_sqlalchemy_url(dsn)).set(database="postgres")
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
+    restore_url = make_url(_to_sqlalchemy_url(app_runtime_dsn())).set(database=restore_db)
+
     store.close()
+    eng.dispose()
+    try:
+        with admin_engine.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{restore_db}"'))  # noqa: S608
+            conn.execute(
+                text("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                     "WHERE datname=:source AND pid <> pg_backend_pid()"),
+                {"source": source_db},
+            )
+            # CREATE DATABASE TEMPLATE 提供同实例一致性快照；真实 RPO/RTO 仍由 pg_dump 演练证明。
+            conn.execute(text(f'CREATE DATABASE "{restore_db}" WITH TEMPLATE "{source_db}"'))  # noqa: S608
+
+        r_store = PostgresStore(restore_url.render_as_string(hide_password=False))
+        try:
+            ops_a = [o for o in r_store.list_operations("TENANT-A")
+                     if o.idempotency_key == "oprefund:TENANT-A:ORD-A:R1"]
+            ops_b = [o for o in r_store.list_operations("TENANT-B")
+                     if o.idempotency_key == "oprefund:TENANT-B:ORD-B:R1"]
+            assert len(ops_a) == 1 and len(ops_b) == 1
+            assert ops_a[0].operation_id != ops_b[0].operation_id
+            execs_a = r_store.list_execution_records("TENANT-A")
+            assert any(e.status is ExecutionStatus.CONFIRMED for e in execs_a)
+            assert all(a.tenant_id == "TENANT-A" for a in r_store.list_audit("TENANT-A"))
+        finally:
+            r_store.close()
+    finally:
+        with admin_engine.connect() as conn:
+            conn.execute(
+                text("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                     "WHERE datname=:restore AND pid <> pg_backend_pid()"),
+                {"restore": restore_db},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{restore_db}"'))  # noqa: S608
+        admin_engine.dispose()

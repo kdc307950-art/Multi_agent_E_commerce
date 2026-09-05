@@ -68,16 +68,24 @@ def setup_runtime_role(engine) -> None:
     这是 RLS 验证的前提：超级用户/表 owner 总是绕过 RLS；运行角色非 owner 且
     NOBYPASSRLS，RLS 才能真正隔离跨租户数据。
     """
+    from psycopg import sql
     from sqlalchemy import text
 
     with engine.begin() as conn:
         exists = conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname=:r"),
                               {"r": APP_RUNTIME_USER}).scalar()
-        if exists != 1:
-            conn.execute(text(
-                f"CREATE ROLE {APP_RUNTIME_USER} LOGIN PASSWORD '{APP_RUNTIME_PASSWORD}' "
-                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS"
-            ))
+        action = "CREATE" if exists != 1 else "ALTER"
+        raw_conn = conn.connection.driver_connection
+        with raw_conn.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    f"{action} ROLE {{}} WITH LOGIN PASSWORD {{}} "
+                    "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS"
+                ).format(
+                    sql.Identifier(APP_RUNTIME_USER),
+                    sql.Literal(APP_RUNTIME_PASSWORD),
+                )
+            )
         conn.execute(text("GRANT USAGE ON SCHEMA public TO app_runtime"))
         conn.execute(text(
             "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime"))

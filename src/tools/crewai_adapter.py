@@ -203,6 +203,10 @@ class CrewAIToolRouter:
 
     @staticmethod
     def resolve_tool(intent: str) -> str:
+        # Accept both graph intents ("order", "refund", ...) and the public
+        # tool names used by direct CrewAI integration callers/tests.
+        if intent in {t["name"] for t in BUSINESS_TOOL_SCHEMAS}:
+            return intent
         for t in BUSINESS_TOOL_SCHEMAS:
             if t["intent"] == intent:
                 return t["name"]
@@ -311,7 +315,15 @@ class CrewAIToolRouter:
 
     def _build_bound_tools(self, crewai_tool, intent: str, ctx: dict) -> list:
         """按意图静态绑定一个小工具集（分域）；未定义写工具的意图 fail-closed 绑定转人工。"""
-        names = _INTENT_TOOLS.get(intent, ["escalate_ticket"])
+        # Public callers may pass either a graph intent (``order``) or the
+        # resolved tool name (``query_order``).  Normalize both forms before
+        # selecting the static domain, otherwise a direct ``query_order``
+        # invocation would silently receive only the escalation tool.
+        canonical_intent = next(
+            (item["intent"] for item in BUSINESS_TOOL_SCHEMAS if item["name"] == intent),
+            intent,
+        )
+        names = _INTENT_TOOLS.get(canonical_intent, ["escalate_ticket"])
         tools: list = []
         for name in names:
             if name == "query_order":
@@ -330,6 +342,16 @@ class CrewAIToolRouter:
     # -------------------------------------------------------------------------
     def _crewai_llm(self):
         from crewai import LLM
+
+        # LiteLLM cannot infer function-calling support for an arbitrary
+        # self-hosted model id.  CrewAI otherwise falls back to ReAct text
+        # parsing and may never submit the bound tools, even when the endpoint
+        # returns a valid OpenAI ``tool_calls`` response.  Keep the override
+        # local to the self-hosted adapter so this claim is explicit and
+        # auditable; the endpoint still must return/parse standard tool calls.
+        class _SelfHostedLLM(LLM):
+            def supports_function_calling(self) -> bool:  # pragma: no cover - exercised by CrewAI
+                return True
 
         # 调用方已显式提供 crewai 兼容 LLM 实例（有 model + base_url），优先使用。
         if self.llm is not None and hasattr(self.llm, "model") and (
@@ -353,7 +375,12 @@ class CrewAIToolRouter:
         if not guard.allowed(base_url):
             raise CrewAIIntegrationError(
                 f"CrewAI 端点 {base_url} 不在自托管网络白名单内，拒绝访问。")
-        return LLM(model=model, base_url=base_url, api_key=api_key)
+        # CrewAI 通过 LiteLLM 路由模型；裸的自托管模型名无法推断 provider，
+        # 会在真实调用前被拒绝。显式使用 openai/ 前缀仍指向项目自托管的
+        # OpenAI-compatible base_url，不会切换到公有 OpenAI 服务。
+        if "/" not in model:
+            model = f"openai/{model}"
+        return _SelfHostedLLM(model=model, base_url=base_url, api_key=api_key)
 
     @staticmethod
     def _task_description(intent: str, tool_name: str) -> str:

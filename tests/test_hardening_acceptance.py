@@ -378,6 +378,8 @@ def test_crewai_mock_backend_records_real_call_chain():
     assert router.mock_calls[0]["intent"] == "order"
 
 
+@pytest.mark.skipif(_CREWAI_AVAILABLE if "_CREWAI_AVAILABLE" in globals() else importlib.util.find_spec("crewai") is not None,
+                    reason="当前环境已安装 crewai；缺失依赖的 fail-closed 在无 crewai 环境验证")
 def test_crewai_enabled_without_crewai_fails_closed():
     store = _eligible_order_ctx_store()
     router = build_crewai_router(Settings(crewai_enabled=True), adapter=build_adapter(Settings()))
@@ -394,14 +396,39 @@ _RUN_CREWAI_INTEGRATION = os.environ.get("RUN_CREWAI_INTEGRATION") == "1"
 @pytest.mark.skipif(not (_CREWAI_AVAILABLE and _RUN_CREWAI_INTEGRATION),
                     reason="需要 crewai 与自托管 LLM 端点；安装 crewai 并设置 RUN_CREWAI_INTEGRATION=1 后运行")
 def test_crewai_real_call_chain_integration():
-    router = build_crewai_router(Settings(crewai_enabled=True, llm_model="self-hosted-model"),
-                                 adapter=build_adapter(Settings()))
+    class _SpyAdapter:
+        """记录 CrewAI 是否真正执行了绑定的 query_order 工具。"""
+
+        def __init__(self):
+            self.inner = build_adapter(Settings())
+            self.calls: list[dict] = []
+
+        def get_order(self, tenant_id, user_id, role, order_id):
+            self.calls.append({
+                "tenant_id": tenant_id, "user_id": user_id,
+                "role": role, "order_id": order_id,
+            })
+            return self.inner.get_order(tenant_id, user_id, role, order_id)
+
+    spy = _SpyAdapter()
+    settings = Settings(
+        crewai_enabled=True,
+        llm_model="self-hosted-model",
+        llm_base_url="http://localhost:8001/v1",
+        llm_allowed_hosts="localhost",
+    )
+    router = build_crewai_router(settings, adapter=spy)
     res = router.run_business_task(
         "query_order",
         {"tenant_id": "TENANT-A", "user_id": "USER-001", "role": "customer",
          "order_id": "ORD-001", "thread_id": "th"},
     )
     assert res["tool"] == "query_order"
+    # 不能只凭最终 tool 名判断：适配器必须确实被 CrewAI 绑定工具调用一次。
+    assert len(spy.calls) == 1, spy.calls
+    assert spy.calls[0]["order_id"] == "ORD-001"
+    assert set(spy.calls[0]) == {"tenant_id", "user_id", "role", "order_id"}
+    assert "状态:delivered" in res.get("crew_result", "")
 
 
 def test_crewai_tool_objects_are_bound_to_agent(monkeypatch):

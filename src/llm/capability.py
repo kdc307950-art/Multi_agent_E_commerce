@@ -3,8 +3,9 @@
 设计红线（见《错误处理与回退机制》§3.2 / Agent 宪法）：
 - 写风险工具（process_refund / process_return / update_return_address）只允许
   `HIGH_CONFIDENCE_MODELS` 白名单内模型调用；判断依据是「模型名显式白名单」，不是分数阈值。
-- 只有**通过写操作专项评测**（write_op_pass=true，见 src/llm/eval 与 scripts/evaluate_models.py）
-  的明确 model id 才能进入白名单；未纳入评测报告的模型一律视为未评测，拒绝写操作并转人工。
+- 只有明确标注为**真实权重**、`whitelist_eligible=true` 且通过写操作专项评测
+  （write_op_pass=true，见 src/llm/eval 与 scripts/evaluate_models.py）的 model id 才能进入白名单；
+  Mock 和代表性端点评测一律拒绝写操作并转人工。
 - 受限环境（preview/production）**强制评测门控**：白名单模型必须同时出现在评测报告中且
   write_op_pass=true，否则 fail-closed（无任何模型可写，全部转人工）。
 
@@ -55,7 +56,7 @@ def resolve_high_confidence_models(settings) -> frozenset[str]:
 
     - base：配置 `HIGH_CONFIDENCE_MODELS` 显式白名单；为空且处于开发/测试则回退到演示默认值，
       受限环境为空则空集（fail-closed）。
-    - report：写操作专项评测报告中 write_op_pass=true 的模型集合。
+    - report：真实权重、可进入白名单且写操作专项评测通过的模型集合。
     - 最终生效 = base ∩ report_pass；受限环境且未提供报告 → 空集（fail-closed）。
     """
     base = _split_csv(getattr(settings, "high_confidence_models", ""))
@@ -69,7 +70,14 @@ def resolve_high_confidence_models(settings) -> frozenset[str]:
 
     # 配置了显式白名单：按评测报告门控。
     report = _load_eval_report(getattr(settings, "llm_eval_report_path", ""))
-    passed = {mid for mid, rec in report.items() if rec.get("write_op_pass") is True}
+    # `write_op_pass` 仅表示评测用例通过；Mock/代表性端点评测不能证明真实
+    # 权重模型能力。只有报告明确声明真实权重来源并标记可进入白名单时才放行。
+    passed = {
+        mid for mid, rec in report.items()
+        if rec.get("write_op_pass") is True
+        and rec.get("evaluation_backend") == "real_weight"
+        and rec.get("whitelist_eligible") is True
+    }
 
     if restricted and not report:
         # 受限环境必须提供评测报告；缺失即 fail-closed（不把未评测模型放入可写名单）。
@@ -77,7 +85,10 @@ def resolve_high_confidence_models(settings) -> frozenset[str]:
 
     # 生效白名单 = 显式白名单 ∩ 评测通过集合（开发环境显式白名单但无报告时，保留显式值以兼容）。
     if not passed:
-        return frozenset(base) if not restricted else frozenset()
+        # 显式提供了报告但没有真实权重资格时，开发环境也不得回退到可写白名单。
+        # 仅在完全没有报告路径/内容的本地演示场景保留兼容回退。
+        report_path = getattr(settings, "llm_eval_report_path", "")
+        return frozenset(base) if not restricted and not report_path else frozenset()
     return frozenset(base) & passed
 
 

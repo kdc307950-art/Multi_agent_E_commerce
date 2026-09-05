@@ -1,4 +1,4 @@
-# 项目状态说明（一页 · 生产候选版 v1.0.0-rc4-candidate · 2026-09-04 冻结）
+# 项目状态说明（一页 · 面试作品 / RC5 生产候选 · 2026-09-05）
 
 > **角色**：release-manager / prod-go-live 团队 · **任务**：t6 发布候选收口 · **交付**：`release/v1.0.0-rc3` 标签 + 重定稿 `GO_NO_GO.md` / `FINAL_ACCEPTANCE.md` + 生产候选版 `README.md`。
 > **依据**：`evidence/prod-go-live/<role>/`（deploy-engineer/security-auditor/test-runner/observability-engineer/acceptance-engineer）真实证据；git 实况为唯一事实来源。
@@ -7,13 +7,13 @@
 
 ## 一、一句结论
 
-系统**已建成生产候选基线**（独立生产栈健康 + PostgreSQL/RLS 已接入验证 + 发布 tag + 镜像 digest 已记录），但**正式生产放量当前为 `NO-GO`**——受 5 项**真实外部依赖（证据边界4）**阻断，能力/安全/幂等/可回滚侧（边界1/2/3）已充分验证构成 **GO 的能力基础**。
+系统定位为**面试级、单租户、低并发、人工审批、Shadow 的自托管作品**。当前仍为 RC5 生产候选、正式生产放量 `NO-GO`；**代表性自托管端点 + 真实 CrewAI 工具调用已闭环**，真实权重模型仍未验证。
 
 ## 二、发布基线与一致性
 
 | 项 | 值 |
 |---|---|
-| 发布 tag | **`release/v1.0.0-rc4-candidate`** → 发布**基线尖端**（在 `3ccab5c`(rc3 收口) 之上叠加"阶段一 rc4-candidate 收口"提交＝当前基线尖端；**以 tag 为锚**）；`release/v1.0.0-rc3` = `3ccab5c` 为历史锚点 |
+| 发布 tag | **`release/v1.0.0-rc5-candidate`** → `8d44e80`（当前候选；后续文档/代码改动尚未形成新 tag） |
 | 基线 commit 链 | `7941246`(已测功能) → `3268a1c`(可复现构建；其间含 `ad168ef`/`8be2d97`/`03819a8`) → `696444a`(migrations 复合FK修复) → `8ddca48`(接受运行面) → `cd743d3`(BUSINESS_DATA_BACKEND, **rc1**) → `cde30fb`(T1/T7 发布证据+生产栈健康) → `59e37f2`(rc2 定稿历史) → `bca4861`(rc2 早期"阶段一 rc2 基线收口" **commit, 祖先；非 rc2 锚**) → `fa7c9a3`(**rc2 tag 目标 commit**) → **阶段一 rc3 收口提交(`3ccab5c`＝rc3 tag 目标＝HEAD)**。<br>注：`release/v1.0.0-rc3` = annotated tag 对象 `d1d2867` → commit `3ccab5c`(== HEAD)；`release/v1.0.0-rc2` = annotated tag 对象 `290b830` → commit `fa7c9a3`（rc2 文档收口尖端，历史、不可移动）；`bca4861` 仅为 rc2 谱系早期收口 commit 祖先，**不作 rc2 锚**。 |
 | 镜像 digest | api `after-sales-prod-api@sha256:5d39f030...`；frontend `after-sales-prod-frontend@sha256:12c35ff7...`（**工作树构建观测值**；clean-context 字节级重建＝部署期执行项/BLOCKED-需 Docker engine 可连接） |
 | 迁移版本一致 | 项目**无数字 schema 版本**。一致性＝①迁移定义 `696444a` ∈ 基线链 ②镜像含迁移修复 ③`MIGRATE_VERIFY` 全新 prod-like 库 clean migrate exit 0（17表/复合FK/RLS生效）④checkpoint 由 `langgraph-checkpoint-postgres==3.1.2` 钉定驱动；`deploy_config_version=0.1.0` 三处一致 |
@@ -23,10 +23,19 @@
 
 | 边界 | 定义 | 关键验证项 |
 |:---:|------|-----------|
-| **边界1 单元测试** | `pytest tests/`（内存/SQLite） | 全量实测 **396 passed, 34 skipped**（430 collected，41.92s，EXIT=0；**rc4-candidate 权威捕获基线实测，见 `evidence/prod-go-live/test-runner/pytest_captain_baseline.log`**）。34 skipped = **33 项 PostgreSQL 数据面**（无 `DATABASE_URL`）+ **1 项 CrewAI 真实调用链**（`test_hardening_acceptance.py:384`）。此前记录的 `320 passed, 34 skipped, 70 errors` 均为**受限沙箱清理 `tmp_path` 的 `PermissionError [WinError 5]` 环境权限问题**所致（70 errors 均属环境问题、0 个真失败；发布基线环境无此限制），故修正后实测 396/34。 |
+| **边界1 单元测试** | `pytest tests/`（内存/SQLite） | 默认回归与可选 CrewAI 集成需分开报告；当前 CrewAI 专项实测 **74 passed, 1 skipped**（含本地代表性端点），不等于真实权重验证。 |
 | **边界2 Mock/沙箱** | preview mock LLM、`sandbox_gateway`、沙箱并发 | N=256 沙箱并发 submit=1/FAIL 收敛 compensated；RpoExceeded 告警真实运行态闭环（合成钻取源）；能力矩阵/写门控 |
 | **边界3 PostgreSQL/RLS 实测** | 真实 PG 数据面 | RLS 动态 B1–B5 全拦；真实 PG 并发 N=256；DR 加密恢复 RTO=0.643s/RPO≤900s 上界；全新库 clean migrate exit 0。★取证多为 preview+一次性独立测试库（非 `after-sales-prod` 专栈实机，生产栈数据面复验＝部署期执行项） |
 | **边界4 真实生产外部依赖** | 真实资产/生产实机 | **全部 BLOCKED-需外部**：受信 CA/域名、真实权重模型端点、真实资金渠道、书面确认真实租户、7 天观察 |
+
+### 模型与评测状态
+
+| 状态 | 允许用途 | 当前证据 |
+|---|---|---|
+| `mock` | 单元测试/回归；不可进入写白名单 | `MockLLM` 与 `self_hosted_server.py` 代表性端点 |
+| `representative_self_hosted` | 协议、SSE、异常和安全链路演示 | 本地 OpenAI-compatible 端点；非真实权重 |
+| `real_weight_candidate` | 真实权重端点评测后，候选写白名单 | 当前未完成 |
+| `production_approved` | 正式生产放量 | 当前不适用 |
 
 ## 四、已验证（GO 的能力基础 ✅）
 
@@ -53,7 +62,7 @@
 
 - ✅ **已提交收口**：阶段一 rc3 发布基线收口提交已纳入（测试默认写临时目录 + 真实 390/34 口径 + uv.lock 不入库），**基线提交时刻工作区 clean**（以 `release/v1.0.0-rc3` 为锚）。**当前 working tree 因团队证据编辑非 clean**。
 - ✅ 重定稿 `GO_NO_GO.md` / `FINAL_ACCEPTANCE.md`，统一四证据边界，消除"已完成/未接入"矛盾（修正 rc1→cd743d3、A8/G9 生产栈健康已证实、迁移版本 4 点表述；**rc3 以基线尖端为锚** 口径）。
-- ✅ 统一 `README.md` 生产候选版口径（11→12 份文档、PostgreSQL/RLS 已接入验证、全量 pytest **396 passed / 34 skipped**（430 collected，**41.92s**，EXIT=0；**rc4-candidate 权威捕获基线实测**，见 `pytest_captain_baseline.log`；34 skipped=33 PG 无 DATABASE_URL+1 CrewAI）、放量 NO-GO、rc4-candidate 以基线尖端为锚）。
+- ✅ 统一 `README.md` 生产候选版口径；历史 rc4 基线数字保留为历史记录，当前工作树全量回归为 **414 passed / 34 skipped**（开启代表性 CrewAI 集成，EXIT=0；2026-09-05）。
 - ✅ `release/v1.0.0-rc3` 标签（→ 基线尖端）；镜像 digest、迁移版本（4 点）与 tag 一致。
 - ✅ 所有未验证项均有明确责任人 + 解锁条件（见 §五）。
 
