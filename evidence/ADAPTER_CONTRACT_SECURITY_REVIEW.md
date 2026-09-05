@@ -102,8 +102,10 @@
    `DataSourceError`（如 DB 断连）并返回 None → 客户端误报"暂无物流轨迹"。建议仅捕获 AdapterError，
    DataSourceError 上抛走 fail-closed 转人工。
 3. [低·配置] 受限环境未强制 `llm_cb_failure_threshold > 0`；需在 launch 门控/配置校验中强制，防误配关闭熔断。
-4. [低·信息] `crewai_adapter._run_real` 把 `tenant_id/user_id/role/order_id/thread_id` 拼进 Task
-   description，开启 `crewai_enabled=True` 时可能进模型提示/日志；建议开启前脱敏/最小化（默认关闭）。
+4. [低·信息]（已修复 · 闭环注入，t1）`crewai_adapter._run_real` 现经 `_task_description` 仅向模型暴露
+   用途与可用工具，**不再**把 `tenant_id/user_id/role/order_id/thread_id` 拼进 Task description（不泄露身份）；
+   租户身份仅由服务端 `ctx`（调用方注入的 TenantContext）经**闭包**注入各工具对象，模型不可覆盖。
+   `crewai_enabled=False`（默认关闭）仍为安全前提。
 5. [低·信息] `postgres_data_source.policy_documents()` 未设 `app.tenant_id`，FORCE RLS 下全量返回空；
    仅 milvus 后端用作语料预载，需以可绕过 RLS 的迁移/owner 角色或设作用域，否则会空。
 

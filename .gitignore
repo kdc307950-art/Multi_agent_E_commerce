@@ -46,6 +46,7 @@ Thumbs.db
 
 # Agent / harness 会话与临时产物（非源码，不入库）
 .agent-teams/
+_pytest_tmp/
 _probe_py/
 _acceptance_tmp/
 .pytest-tmp/

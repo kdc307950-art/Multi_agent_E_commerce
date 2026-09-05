@@ -1,10 +1,10 @@
 # BASELINE_COMMIT_SCOPE — 忠实发布基线 commit 范围（应提交 / 绝不可提交）
 
 > 角色：deploy-engineer（T7）· 关联：t1（基线）/ t2（迁移修复）
-> 发布基线：`release/v1.0.0-rc1` → `cd743d3`（tree `9669ce25`）。忠实基线 = 7941246(已测功能) · 3268a1c(可复现构建) · 696444a(migrations 复合外键修复) · 8ddca48a(接受运行面+部署配置) · cd743d3(BUSINESS_DATA_BACKEND)。
+> 发布基线：**当前锚点 = `release/v1.0.0-rc3` → `3ccab5c`（==HEAD；运行面基线=`cde30fb`，`IMAGE_DIGESTS.release_baseline.commit`）**。**rc1→`cd743d3`、rc2→`fa7c9a3`（tag 对象 `290b830`；`bca4861` 为其阶段一收口"父提交"）为不可移动历史锚点**。忠实基线链 = 7941246(已测功能) · 3268a1c(可复现构建) · 696444a(migrations 复合外键修复) · 8ddca48a(接受运行面+部署配置) · cd743d3(BUSINESS_DATA_BACKEND, rc1 锚) · cde30fb(运行面基线) · fa7c9a3(rc2 锚) · 3ccab5c(rc3 锚==HEAD)。
 
-## 一、已纳入基线（应提交，已在 cd743d3）
-这些是**接受并验收通过**的运行面/部署配置，构成忠实基线，应全部纳入 git：
+## 一、已纳入基线（应提交；运行面基线已至此，随 rc3=3ccab5c 收口）
+这些是**接受并验收通过**的运行面/部署配置，构成忠实基线，应全部纳入 git（即随 `cde30fb` 运行面基线提交，并由 rc2/rc3 收口至 `3ccab5c`）：
 
 | 类别 | 内容 |
 |------|------|
@@ -35,6 +35,6 @@
 | **日志/临时** | `*.log`、`*.tmp`、`tmp/` |
 
 ## 三、结论
-- **忠实基线成立**：接受运行面 + 部署配置已提交（`cd743d3`），`.gitignore` 正确拦截机密/数据/缓存/转储。
-- **另需干净复现**：镜像当前基于**工作树**构建（代码与基线一致）；要达到字节级可复现，需在 `release/v1.0.0-rc1` 上用 `git archive` 物化 clean-context + `docker build --no-cache` 重建并记录新 digest（见 DEPLOY_BASELINE.md §7 #2，属"待干净重做"项）。
+- **忠实基线成立**：接受运行面 + 部署配置已提交（运行面基线=`cde30fb`，随 rc2/rc3 收口至=`3ccab5c`），`.gitignore` 正确拦截机密/数据/缓存/转储。
+- **另需干净复现**：镜像当前基于**工作树**构建（代码与运行面基线 `cde30fb` 一致；**rc3 未重建**，digest 观测值为 rc1/rc2 运行面基线沿用）；要达到字节级可复现，需在 **`release/v1.0.0-rc3`**（=3ccab5c）上用 `git archive` 物化 clean-context + `docker build --no-cache` 重建并记录新 digest（见 DEPLOY_BASELINE.md §7 #2，属"待干净重做"项）。
 - **红线保证**：`deploy/.env.production`（真实随机密钥）与 `data/`（生产/预发布卷）均被 `.gitignore` 拦截，未入基线——发布过程不泄露机密、不复用 preview 卷。

@@ -71,6 +71,32 @@ services:
         condition: service_healthy
     networks: [internal]
 
+  # 自部署网关沙箱（完全自托管，不触真实资金）：模拟真实电商/支付网关的对外最小面。
+  # 对接 api/worker 的 EXECUTION_PROVIDER=sandbox_http（见启动时环境注入）：
+  # - submit/query/compensate：SQLite 持久化幂等（同租户同 idempotency_key 重复提交返回同一
+  #   external_txn_id / 结果，绝不重复扣款/退款；跨租户以 (tenant_id, idempotency_key) 唯一键互不覆盖）。
+  # - 只挂 internal 私有网，不发布任何宿主端口；SQLite 沙箱数据持久化到挂载卷。
+  # - SANDBOX_GATEWAY_API_KEY 由服务器环境密钥注入（缺失仅限本地开发放行）。
+  sandbox-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "src.execution.sandbox_gateway"]
+    environment:
+      - SANDBOX_GATEWAY_DB=/data/sandbox_gateway.db
+      - SANDBOX_GATEWAY_HOST=0.0.0.0
+      - SANDBOX_GATEWAY_PORT=8010
+      - SANDBOX_GATEWAY_API_KEY=${SANDBOX_GATEWAY_API_KEY:?SANDBOX_GATEWAY_API_KEY 必须由密钥注入（沙箱网关 API Key）}
+    volumes:
+      - ./data/preview-sandbox:/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8010),3); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   api:
     build:
       context: .
@@ -129,7 +155,13 @@ services:
       - LLM_EVAL_REPORT_PATH=${LLM_EVAL_REPORT_PATH:-/app/evidence/llm_candidate_eval.json}
       # 受控执行面：shadow（只生成待执行记录+模拟回执，不触真实资金）| live（需沙箱端到端验收后）。
       - EXECUTION_MODE=${EXECUTION_MODE:-shadow}
-      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-mock}
+      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-sandbox_http}
+      # 自部署网关沙箱（完全自托管，不触真实资金）：deploy/.env.preview.example 已把 EXECUTION_PROVIDER
+      # 配置为 sandbox_http；此处显式接内网 sandbox-gateway 服务。缺 gateway_base_url 时 build_provider
+      # fail-closed（绝不静默回退 mock）。GATEWAY_API_KEY 由服务器环境密钥注入。
+      - GATEWAY_BASE_URL=${GATEWAY_BASE_URL:-http://sandbox-gateway:8010}
+      - GATEWAY_API_KEY=${GATEWAY_API_KEY:?GATEWAY_API_KEY 必须由密钥注入（沙箱网关 API Key）}
+      - GATEWAY_TIMEOUT_SECONDS=${GATEWAY_TIMEOUT_SECONDS:-10}
       # 回调 HMAC-SHA256 验签密钥：必须由环境密钥注入；禁止使用内建默认值（check_secrets 拒绝）。
       - EXECUTION_CALLBACK_HMAC_SECRET=${EXECUTION_CALLBACK_HMAC_SECRET:?EXECUTION_CALLBACK_HMAC_SECRET 必须由密钥注入，禁止默认值}
       # 完全自托管检索：keyword（确定性缺省）
@@ -166,6 +198,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      sandbox-gateway:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/healthz', timeout=3)"]
       interval: 10s
@@ -200,7 +234,10 @@ services:
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       # 受控执行面 + 回调验签：对账任务 build_adapter 需要同一执行模式/提供方/回调密钥。
       - EXECUTION_MODE=${EXECUTION_MODE:-shadow}
-      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-mock}
+      - EXECUTION_PROVIDER=${EXECUTION_PROVIDER:-sandbox_http}
+      - GATEWAY_BASE_URL=${GATEWAY_BASE_URL:-http://sandbox-gateway:8010}
+      - GATEWAY_API_KEY=${GATEWAY_API_KEY:?GATEWAY_API_KEY 必须由密钥注入（沙箱网关 API Key）}
+      - GATEWAY_TIMEOUT_SECONDS=${GATEWAY_TIMEOUT_SECONDS:-10}
       - EXECUTION_CALLBACK_HMAC_SECRET=${EXECUTION_CALLBACK_HMAC_SECRET:?EXECUTION_CALLBACK_HMAC_SECRET 必须由密钥注入，禁止默认值}
       # 自托管可观测（可选）：与 api 一致。
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
@@ -216,6 +253,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      sandbox-gateway:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import os,redis; redis.from_url(os.environ['REDIS_URL']).ping()"]
       interval: 10s

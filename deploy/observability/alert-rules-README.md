@@ -1,6 +1,6 @@
 # 运营告警规则 · 说明与接线（单一权威来源）
 
-> **权威规则文件（单一事实源）**：`deploy/observability/alert-rules.yml`（t7 最终交付，8 组 / 15 条）。
+> **权威规则文件（单一事实源）**：`deploy/observability/alert-rules.yml`（t7 最终交付，9 组 / 15 条）。
 > 该文件经 `docker-compose.observability.yml` 的 `prometheus` 服务挂载为容器路径
 > `/etc/prometheus/alert-rules.yml`，并由 `deploy/observability/prometheus.yml` 的 `rule_files` 引用。
 > **Prometheus 实际加载的规则 == 仓库内 catalog**（挂载与 `rule_files` 均指向同一文件，唯一权威）。
@@ -12,7 +12,7 @@
 
 ---
 
-## 1. 告警规则清单（`alert-rules.yml`，8 组 / 15 条）
+## 1. 告警规则清单（`alert-rules.yml`，9 组 / 15 条）
 
 | 规则 | 面向维度 | 表达式是否可立即生效 | 阈值（占位，须校准） |
 |------|---------|--------------------|--------------------|

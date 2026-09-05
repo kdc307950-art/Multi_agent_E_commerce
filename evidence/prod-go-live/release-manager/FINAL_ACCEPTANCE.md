@@ -1,8 +1,10 @@
-# 验收结论（FINAL_ACCEPTANCE · release-manager · t6 · 定稿 · rc2）
+# 验收结论（FINAL_ACCEPTANCE · release-manager · t6 · 定稿 · rc3（rc2 期定稿，随 rc3 发布））
 
 > **产出国角色**：release-manager（发布经理）· prod-go-live 团队 · 任务 t6
-> **版本状态**：**定稿**（基于 t1–t5 各角色回填的真实证据；逐条结论与整体结论已定稿）。**随 `release/v1.0.0-rc2`（→ 基线尖端）提交。**
-> **git 口径（t5 更新）**：当前 HEAD = `release/v1.0.0-rc2` = **基线尖端**（阶段一发布基线收口提交；历史基线 `59e37f2`(rc2 定稿)）；工作区 **clean**（阶段一已收口提交，以 `release/v1.0.0-rc2` 为锚）。
+> **版本状态**：**定稿**（基于 t1–t5 各角色回填的真实证据；逐条结论与整体结论已定稿）。**随 `release/v1.0.0-rc3`（=3ccab5c）提交。**
+> **git 口径（RC3 定稿）**：当前发布锚点 = `release/v1.0.0-rc3` = annotated tag 对象 `d1d2867` → commit `3ccab5c`（== HEAD）。本文为 **rc2 期定稿**，作为 rc3 发布证据随 rc3 发布；rc1/rc2 为历史锚点（rc2 = tag 对象 `290b830` → commit `fa7c9a3`；`bca4861` 为 rc2 谱系早期收口 commit 父提交，非 rc2 锚）。
+>
+> **rc2 锚定口径修正（✨ 定稿 · release-manager 2026-09-05 · 经队长 git 复测确认）**：`release/v1.0.0-rc2` = annotated tag 对象 **`290b830`** → commit **`fa7c9a3`**（rc2 文档收口尖端）；**`bca4861` 为 rc2 谱系早期"阶段一 rc2 基线收口" commit（祖先），不是 rc2 tag/锚**。本文档凡涉及 rc2 锚定的表述以此为准；rc1 锚保留 `cd743d3` 不变。基线链定稿：`7941246→3268a1c(可复现构建)→696444a→8ddca48→cd743d3(rc1)→cde30fb→59e37f2→bca4861(rc2 早期收口 commit, 祖先)→fa7c9a3(rc2 tag 目标)→阶段一 rc3 收口(3ccab5c=rc3 tag 目标==HEAD)`。
 > **证据来源**：`evidence/prod-go-live/<role>/`；并交叉引用仓库既有 `[substrate]`（preview/沙箱级）作为能力基线。
 > **证据边界**：本文件所有判定均按四证据边界（边界1 单元测试 / 边界2 Mock·沙箱 / 边界3 PostgreSQL·RLS 实测 / 边界4 真实生产外部依赖）标注，绝不把"一次性库取证"误作"生产栈实机达标"，也不把"mock 引擎"误作"真实模型能力"。定义详见 §〇。
 > **诚实原则**：凡**真实租户书面确认 / 真实资金链路 / 受信 CA / 真实权重模型 / 7 天观察**未获提供，一律如实标注 `❌ BLOCKED-需外部`；凡**生产栈运行时 RLS / 告警端到端复验 / `git archive` clean-context 字节级重建 / mismatch 计数后台实测**未实际执行，一律标注 `部署期执行项`；**独立生产栈容器级带起健康已证实**（`PROD_STACK_HEALTH.md`，T7），绝不虚报、也不缩小。

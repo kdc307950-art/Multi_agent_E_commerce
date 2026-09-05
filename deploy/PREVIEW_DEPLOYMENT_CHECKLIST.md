@@ -60,7 +60,11 @@
 | `HIGH_CONFIDENCE_MODELS` | 写操作能力矩阵白名单（仅评测通过的 model id） | 留空或含未评测模型 → 写操作 fail-closed 转人工 |
 | `LLM_EVAL_REPORT_PATH` | 写操作专项评测报告路径（容器内） | 受限环境缺失 → 白名单不生效（无模型可写）；宿主侧 `evidence/llm_candidate_eval.json` 须存在并只读挂载 |
 | `EXECUTION_MODE` | 审批后执行模式（`shadow`/`live`） | 首次上线须 `shadow`；`live`+`mock` 提供方 → 门控失败 |
-| `EXECUTION_PROVIDER` | 外部资金/业务网关提供方（当前 `mock`） | `live` 时禁止 `mock`（首次上线只允许沙箱） |
+| `EXECUTION_PROVIDER` | 外部资金/业务网关提供方（当前 `sandbox_http`，自部署网关沙箱，见 `docker-compose.preview.yml` 的 `sandbox-gateway` 服务） | `live` 时禁止 `mock`（首次上线只允许沙箱）；`sandbox_http` 缺 `gateway_base_url` 时 `build_provider` fail-closed |
+| `GATEWAY_BASE_URL` | 沙箱网关 base URL（`http://sandbox-gateway:8010`） | `sandbox_http` 必填；缺省由 compose 指向 `sandbox-gateway:8010` |
+| `GATEWAY_API_KEY` | 调用沙箱网关请求头 `X-API-Key` | 由服务器环境密钥注入；缺失则 `sandbox-gateway` 拒绝（401） |
+| `GATEWAY_TIMEOUT_SECONDS` | 沙箱网关调用超时（秒，缺省 10） | 超时 → `ProviderError(timeout)` → 引擎 fail-closed 转对账/人工 |
+| `SANDBOX_GATEWAY_API_KEY` | 沙箱网关**自身**对外鉴权（`sandbox-gateway` 服务校验请求头 `X-API-Key`） | 由服务器环境密钥注入；缺失则 `sandbox-gateway` 容器启动即 fail-closed（`${VAR:?}`） |
 | `EXECUTION_CALLBACK_HMAC_SECRET` | 回调 HMAC-SHA256 验签密钥 | 缺失或命中内建默认 `shadow-callback-secret` → `check_secrets` 拒绝 |
 
 > 机密不得提交、不得出现在 `deploy/.env.preview.example`（仅填 `<inject>` 占位）。`deploy/.env.preview`

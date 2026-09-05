@@ -2,6 +2,8 @@
 
 > 角色：deploy-engineer（T7）· 关联 t2（迁移硬化修复）
 > 目的：用当前工作树（含 `shipping_events` 复合外键修复）通过 **docker compose** 迁移服务 + 完整生产栈 bring-up，确认干净迁移 exit 0、三表+RLS+角色就绪、全容器健康。
+>
+> **观测时点限定（依 T1.1 审计 `security-auditor/RELEASE_DOC_CONSISTENCY_AUDIT.md` §二.2.3）**：本文所述"全容器健康 / 全部 healthy / 已证实"均为 **T7 一次 bring-up 观测时点（2026-09-04）** 的结果，**非当前运行态证明**；当前运行态健康未经本次复核。若要作为"生产栈当前健康"依据，须在具备 Docker engine 的部署环境重新 `docker compose ps` 复核。
 
 ## 关键修复点
 - 迁移缺陷已修复：`src/infrastructure/migrations.py::shipping_events` 改为表级复合外键 `FOREIGN KEY (tenant_id, order_id) REFERENCES orders(tenant_id, order_id) ON DELETE CASCADE`（提交 `696444a`）。
@@ -11,7 +13,7 @@
 命令：`docker compose --env-file deploy/.env.production -f docker-compose.prod.yml up -d`
 - **`after-sales-prod-migrate-1` exit = 0**，日志：`migrations applied; runtime role and backup role ensured.`
 
-## 全栈容器状态（`docker compose ps`，全部健康）
+## 全栈容器状态（`docker compose ps`，全部健康 —— **T7 bring-up 观测时点**，非当前运行态证明）
 ```
 after-sales-prod-api-1        Up  (healthy)   8000/tcp
 after-sales-prod-backup-1     Up              5432/tcp
@@ -41,6 +43,6 @@ after-sales-prod-worker-1     Up  (healthy)   8000/tcp
 - 外键完整性实测：`INSERT tenants('P-A') → orders('P-A','O-1') → shipping_events('P-A','O-1')` 全部成功，返回 `FK-OK`。
 
 ## 结论
-- 独立生产栈（project=after-sales-prod）**全部容器健康**；迁移 exit 0；三表 + RLS FORCE + 租户 policy + app_runtime/backup_role + 复合外键全部就绪；api `/api/healthz` 200。
-- preview 栈未受影响（7 容器仍运行）。
+- 独立生产栈（project=after-sales-prod）**于 T7 一次 bring-up 观测时点全部容器 healthy**（当时）；迁移 exit 0；三表 + RLS FORCE + 租户 policy + app_runtime/backup_role + 复合外键全部就绪；api `/api/healthz` 200（**均为观测时点结果；非当前运行态证明**）。
+- preview 栈未受影响（当时 7 容器仍运行；非当前运行态证明）。
 - 边界：nginx 443 当前用**自签**证书（非受信，TLS **BLOCKED-需外部**）；LLM_BACKEND=mock（真实 LLM 评测/端点 BLOCKED-需外部）；`BUSINESS_DATA_BACKEND=postgres`（读空表 → 无数据时 fail-closed 转人工，符合生产前无放行租户姿态）。EXECUTION_MODE=shadow（不触真实资金）。

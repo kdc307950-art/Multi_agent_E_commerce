@@ -2,44 +2,167 @@
 
 设计（对应《工具调用与集成》§4：第二阶梯分域 + 静态绑定）：
 - 默认关闭（crewai_enabled=False）：业务节点走内置确定性路径（EcommerceAdapter 做租户/资格校验）。
-- 打开（crewai_enabled=True）后，本模块构造 CrewAI 子智能体（每个绑定 2-3 个业务/平台工具），
-  并把业务调用委派给对应子智能体；工具层仍旧由 EcommerceAdapter 做租户/归属/资格校验，
-  CrewAI 只负责"选哪个工具/怎么回答"，不绕过任何安全校验。
+- 打开（crewai_enabled=True）后，本模块构造 CrewAI 子智能体，并把**真实工具对象**通过
+  Agent 的 `tools` 参数绑定到子智能体（而非仅把工具名写进 Task 描述文本）。
+- 工具层仍旧由 EcommerceAdapter 做租户/归属/资格校验；CrewAI 只负责"选哪个工具/怎么回答"，
+  不绕过任何安全校验。
 - 完全自托管：CrewAI 子智能体使用的 LLM 来自本地/内网 OpenAI 兼容端点（settings.llm_base_url），
-  绝不接公有 SaaS。
+  绝不接公有 SaaS（无本地端点/不在网络白名单时 fail-closed）。
+- tenant_id / user_id / role 只在**服务端上下文**（调用方注入的 `ctx`）中，通过闭包注入到各个
+  工具对象；模型只能提供业务参数（order_id / reason 等），**绝不能**传入或覆盖租户身份。
 
 真实调用链说明：`run_business_task` 在 enabled + crewai 可导入时构造真实 CrewAI 对象并执行；
 否则（默认）用 `MockCrewAIBackend` 记录调用链（供单元/集成测试），证明契约可用。
 
-本模块不改变系统安全模型：即使 CrewAI 被打开，写操作仍须经唯一 human_approval（上层保证）。
+本模块不改变系统安全模型：即使 CrewAI 被打开，写操作（process_refund 等）只**创建待审批
+操作**，绝不直接执行；唯一 human_approval 仍是写操作唯一入口（上层保证）。
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import Optional
 
+from src.core.types import PendingAction, generate_operation_key
 from src.tools import AdapterError, EcommerceAdapter
 
 
 class CrewAIIntegrationError(Exception):
-    """CrewAI 集成错误（未启用、依赖缺失、委派失败等）。"""
+    """CrewAI 集成错误（未启用、依赖缺失、无自托管 LLM、委派失败等）。"""
 
 
-# 业务工具清单（MCP 风格描述；均由上层做租户/资格校验后授权）
+# 业务工具清单（MCP 风格描述 + 输入/输出 schema；均由上层做租户/资格校验后授权）。
+# 注意：schema 不暴露 tenant_id/user_id/role —— 这些身份字段由服务端上下文注入，绝不来自模型。
 BUSINESS_TOOL_SCHEMAS: list[dict] = [
-    {"name": "query_order", "intent": "order",
-     "description": "查询订单状态/金额/商品（只读）"},
-    {"name": "track_shipping", "intent": "shipping",
-     "description": "查询物流轨迹（只读）"},
-    {"name": "process_refund", "intent": "refund",
-     "description": "退款资格+金额判定并触发审批（写，需人工审批）"},
-    {"name": "process_return", "intent": "return_request",
-     "description": "退货资格判定并触发审批（写，需人工审批）"},
-    {"name": "update_return_address", "intent": "return_address",
-     "description": "变更退货地址并触发审批（写，需人工审批）"},
-    {"name": "escalate_ticket", "intent": "complaint",
-     "description": "转人工/升级"},
+    {
+        "name": "query_order",
+        "intent": "order",
+        "description": "查询订单状态/金额/商品（只读）",
+        "input_schema": {
+            "type": "object",
+            "properties": {"order_id": {"type": "string", "description": "订单号 ORD-数字格式"}},
+            "required": ["order_id"],
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"summary": {"type": "string", "description": "订单状态/金额/商品摘要"}},
+        },
+    },
+    {
+        "name": "track_shipping",
+        "intent": "shipping",
+        "description": "查询物流轨迹（只读）",
+        "input_schema": {
+            "type": "object",
+            "properties": {"order_id": {"type": "string", "description": "订单号 ORD-数字格式"}},
+            "required": ["order_id"],
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"summary": {"type": "string", "description": "当前物流状态/运单号"}},
+        },
+    },
+    {
+        "name": "process_refund",
+        "intent": "refund",
+        "description": "退款资格+金额判定并触发审批（写，只创建待审批操作，绝不执行）",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {"type": "string", "description": "订单号 ORD-数字格式"},
+                "reason": {"type": "string", "description": "退款理由"},
+            },
+            "required": ["order_id"],
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["pending_approval"]},
+                "operation_id": {"type": "string"},
+                "approval_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "process_return",
+        "intent": "return_request",
+        "description": "退货资格判定并触发审批（写，只创建待审批操作，绝不执行）",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {"type": "string", "description": "订单号 ORD-数字格式"},
+                "reason": {"type": "string", "description": "退货理由"},
+            },
+            "required": ["order_id"],
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["pending_approval"]},
+                "operation_id": {"type": "string"},
+                "approval_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "update_return_address",
+        "intent": "return_address",
+        "description": "变更退货地址并触发审批（写，只创建待审批操作，绝不执行）",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {"type": "string", "description": "订单号 ORD-数字格式"},
+                "receiver_name": {"type": "string"},
+                "phone": {"type": "string"},
+                "region": {"type": "string"},
+                "detail": {"type": "string"},
+            },
+            "required": ["order_id"],
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["pending_approval"]},
+                "operation_id": {"type": "string"},
+                "approval_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "escalate_ticket",
+        "intent": "complaint",
+        "description": "转人工/升级",
+        "input_schema": {
+            "type": "object",
+            "properties": {"reason": {"type": "string", "description": "升级/转人工理由"}},
+            "required": [],
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {"summary": {"type": "string", "description": "已转人工"}},
+        },
+    },
 ]
+
+
+# 每个意图绑定的工具子集（第二阶梯：子智能体分域 + 静态绑定；每个子智能体只绑 2-3 个）。
+# 未定义写工具的意图（如退货/改址）fail-closed 绑定 escalate_ticket（只允许转人工）。
+_INTENT_TOOLS: dict[str, list[str]] = {
+    "order": ["query_order"],
+    "shipping": ["query_order"],
+    "refund": ["process_refund", "query_order"],
+    "return_request": ["escalate_ticket"],
+    "return_address": ["escalate_ticket"],
+    "complaint": ["escalate_ticket"],
+}
+
+
+def _require_ctx(ctx: dict, key: str) -> str:
+    """服务端上下文必填字段；缺失即 fail-closed（不能以默认租户/身份继续）。"""
+    value = ctx.get(key)
+    if value is None or value == "":
+        raise AdapterError("missing_tenant_context", f"缺少服务端上下文 {key}，拒绝执行")
+    return value
 
 
 class MockCrewAIBackend:
@@ -55,13 +178,22 @@ class MockCrewAIBackend:
 
 
 class CrewAIToolRouter:
-    """把业务调用委派给 CrewAI 子智能体（enabled）或确定性后端（默认）。"""
+    """把业务调用委派给 CrewAI 子智能体（enabled）或确定性后端（默认）。
+
+    安全要点：
+    - `store`（可选）：写工具创建待审批 operation/approval 必需；缺失时写调用 fail-closed 转人工。
+    - `settings`（可选）：提供自托管 LLM 端点（base_url/model/api_key）与网络白名单；
+      缺失或端点不在白名单时 `_run_real` fail-closed，绝不回退到公有 SaaS 默认。
+    - `ctx` 由调用方注入（服务端 TenantContext），工具对象通过闭包捕获它；模型不可覆盖租户身份。
+    """
 
     def __init__(self, *, enabled: bool = False, llm=None, adapter: Optional[EcommerceAdapter] = None,
-                 allow_delegation: bool = True) -> None:
+                 store=None, settings=None, allow_delegation: bool = True) -> None:
         self.enabled = enabled
         self.llm = llm
         self.adapter = adapter or EcommerceAdapter()
+        self.store = store
+        self.settings = settings
         self.allow_delegation = allow_delegation
         self._mock = MockCrewAIBackend()
 
@@ -75,10 +207,159 @@ class CrewAIToolRouter:
     def tool_schemas(self) -> list[dict]:
         return list(BUSINESS_TOOL_SCHEMAS)
 
+    # -------------------------------------------------------------------------
+    # 写操作能力门控（模型白名单，与主图节点一致：写风险工具只允许白名单模型）。
+    # -------------------------------------------------------------------------
+    def _write_capability_ok(self) -> bool:
+        if self.llm is not None:
+            return bool(getattr(self.llm, "capability_ok", False))
+        if self.settings is not None:
+            from src.llm.capability import capability_ok
+            model = getattr(self.settings, "effective_llm_model", "") or ""
+            return capability_ok(model, self.settings)
+        # 无任何上下文 → 保守拒绝写（fail-closed）。
+        return False
+
+    # -------------------------------------------------------------------------
+    # 业务工具实现（可独立于 crewai 单测：纯业务逻辑，全部由服务端 ctx 注入身份）。
+    # -------------------------------------------------------------------------
+    def _do_query_order(self, ctx: dict, params: dict) -> str:
+        tenant_id = _require_ctx(ctx, "tenant_id")
+        user_id = _require_ctx(ctx, "user_id")
+        role = ctx.get("role") or "customer"
+        order_id = params.get("order_id") or ctx.get("order_id")
+        if not order_id:
+            raise AdapterError("missing_order_id", "缺少订单号")
+        order = self.adapter.get_order(tenant_id, user_id, role, order_id)
+        items = ", ".join(f'{i["name"]}(x{i["quantity"]})' for i in order.items)
+        return f'状态:{order.status} 金额:{order.total_amount} 商品:{items}'
+
+    def _do_process_refund(self, ctx: dict, params: dict) -> dict:
+        """退款：只做资格判定并创建待审批 operation/approval，**绝不执行**。"""
+        if not self._write_capability_ok():
+            raise AdapterError("model_not_in_whitelist", "写操作模型不在能力矩阵白名单，转人工")
+        tenant_id = _require_ctx(ctx, "tenant_id")
+        user_id = _require_ctx(ctx, "user_id")
+        role = ctx.get("role") or "customer"
+        order_id = params.get("order_id") or ctx.get("order_id")
+        if not order_id:
+            raise AdapterError("missing_order_id", "缺少订单号")
+        if self.store is None:
+            # 无存储无法创建审批操作 → fail-closed 转人工。
+            raise AdapterError("missing_store", "无存储，无法创建审批操作；转人工")
+        thread_id = ctx.get("thread_id") or ""
+        now = time.time()
+        # 资格判定（归属/金额/窗口），不通过则 fail-closed 转人工。
+        elig = self.adapter.check_refund_eligibility(tenant_id, user_id, role, order_id)
+        if not elig.eligible:
+            raise AdapterError("refund_ineligible", elig.detail or "退款资格/金额不明，转人工")
+        reason = params.get("reason") or "申请退款"
+        client_request_id = (params.get("client_request_id") or ctx.get("client_request_id")
+                             or str(int(now * 1000)))
+        idem_key = generate_operation_key(PendingAction.REFUND, tenant_id, order_id, client_request_id)
+        op = self.store.create_operation(tenant_id, thread_id, order_id, PendingAction.REFUND,
+                                         idem_key, now)
+        approval = self.store.create_approval(tenant_id, thread_id, op.operation_id,
+                                              PendingAction.REFUND, order_id, elig.amount,
+                                              reason, now)
+        # 只创建待审批操作；审批通过后由 execute_* 执行（本模块绝不执行）。
+        return {
+            "status": "pending_approval",
+            "operation_id": op.operation_id,
+            "approval_id": approval.approval_id,
+            "refund_amount": elig.amount,
+            "message": f"退款申请已创建（金额 {elig.amount}），需人工审批后执行。",
+        }
+
+    @staticmethod
+    def _do_escalate_ticket(ctx: dict, params: dict) -> str:
+        return "已转为人工处理"
+
+    # -------------------------------------------------------------------------
+    # CrewAI 工具工厂：把业务逻辑包装成 crewai Tool 对象，并通过闭包注入服务端 ctx。
+    # 工具函数只暴露模型可控参数（order_id / reason 等），**不暴露** tenant/user/role。
+    # -------------------------------------------------------------------------
+    def _make_query_order_tool(self, crewai_tool, ctx: dict):
+        def query_order(order_id: str) -> str:
+            """查询订单状态/金额/商品（只读）。参数：order_id（ORD-数字格式）。"""
+            return self._do_query_order(ctx, {"order_id": order_id})
+
+        return crewai_tool(query_order)
+
+    def _make_process_refund_tool(self, crewai_tool, ctx: dict):
+        def process_refund(order_id: str, reason: str = "") -> str:
+            """退款资格判定并触发人工审批（写操作，只创建待审批记录，绝不直接退款）。
+            参数：order_id（ORD-数字格式）、reason（退款理由）。"""
+            result = self._do_process_refund(ctx, {"order_id": order_id, "reason": reason})
+            return json.dumps(result, ensure_ascii=False)
+
+        return crewai_tool(process_refund)
+
+    def _make_escalate_ticket_tool(self, crewai_tool, ctx: dict):
+        def escalate_ticket(reason: str = "") -> str:
+            """转人工/升级（无法自动处理或客户升级投诉时）。参数：reason（升级/转人工理由）。"""
+            return self._do_escalate_ticket(ctx, {"reason": reason})
+
+        return crewai_tool(escalate_ticket)
+
+    def _build_bound_tools(self, crewai_tool, intent: str, ctx: dict) -> list:
+        """按意图静态绑定一个小工具集（分域）；未定义写工具的意图 fail-closed 绑定转人工。"""
+        names = _INTENT_TOOLS.get(intent, ["escalate_ticket"])
+        tools: list = []
+        for name in names:
+            if name == "query_order":
+                tools.append(self._make_query_order_tool(crewai_tool, ctx))
+            elif name == "process_refund":
+                tools.append(self._make_process_refund_tool(crewai_tool, ctx))
+            elif name == "escalate_ticket":
+                tools.append(self._make_escalate_ticket_tool(crewai_tool, ctx))
+            else:
+                # 未实现绑定的工具：一律 fail-closed 只允许转人工。
+                tools.append(self._make_escalate_ticket_tool(crewai_tool, ctx))
+        return tools
+
+    # -------------------------------------------------------------------------
+    # 自托管 LLM：仅使用本地/内网端点；无端点或不在网络白名单 → fail-closed，绝不接 SaaS。
+    # -------------------------------------------------------------------------
+    def _crewai_llm(self):
+        from crewai import LLM
+
+        # 调用方已显式提供 crewai 兼容 LLM 实例（有 model + base_url），优先使用。
+        if self.llm is not None and hasattr(self.llm, "model") and (
+                hasattr(self.llm, "base_url") or hasattr(self.llm, "api_base")):
+            return self.llm
+
+        s = self.settings
+        if s is None:
+            raise CrewAIIntegrationError(
+                "crewai_enabled=true 但未提供自托管 LLM 配置；拒绝使用公有 SaaS 默认端点。")
+        base_url = str(getattr(s, "llm_base_url", "") or "")
+        model = str(getattr(s, "effective_llm_model", "") or getattr(s, "llm_model", "self-hosted-model"))
+        api_key = str(getattr(s, "llm_api_key", "sk-local"))
+        if not base_url:
+            raise CrewAIIntegrationError(
+                "crewai_enabled=true 但未配置自托管 LLM 端点；拒绝使用公有 SaaS 默认端点。")
+        # 网络白名单守卫（完全自托管红线）：端点不在白名单一律拒绝。
+        from src.llm.security import EndpointGuard
+        guard = EndpointGuard(list(getattr(s, "llm_allowed_host_list", []) or []),
+                              restricted=bool(getattr(s, "is_restricted_env", False)))
+        if not guard.allowed(base_url):
+            raise CrewAIIntegrationError(
+                f"CrewAI 端点 {base_url} 不在自托管网络白名单内，拒绝访问。")
+        return LLM(model=model, base_url=base_url, api_key=api_key)
+
+    @staticmethod
+    def _task_description(intent: str, tool_name: str) -> str:
+        """任务描述：仅向模型暴露用途与可用工具，**不含** tenant_id/user_id/role/订单等身份数据。"""
+        tool_desc = next((t["description"] for t in BUSINESS_TOOL_SCHEMAS if t["name"] == tool_name),
+                         tool_name)
+        return (f"请处理售后意图「{intent}」。使用已绑定工具「{tool_name}」完成：{tool_desc}。"
+                "只调用已授权工具，不得编造订单或金额数据；若无法确定则转人工。")
+
     def run_business_task(self, intent: str, ctx: dict, params: dict | None = None) -> dict:
         """真实调用链入口。
 
-        - enabled + crewai 可导入：构造真实 CrewAI Crew（子智能体绑定工具）并执行。
+        - enabled + crewai 可导入：构造真实 CrewAI Crew（子智能体绑定真实工具对象）并执行。
         - 否则：用 MockCrewAIBackend 记录调用链（测试/兜底）。
         无论哪条路径，工具返回结果均须再经 adapter 校验（上层完成），本层只做委派/路由。
         """
@@ -89,30 +370,29 @@ class CrewAIToolRouter:
         return self._mock.dispatch(intent, tool_name, {k: v for k, v in ctx.items()}, params)
 
     def _run_real(self, intent: str, tool_name: str, ctx: dict, params: dict) -> dict:
-        """构造并执行真实 CrewAI 子智能体（完全自托管，使用本地模型端点）。
+        """构造并执行真实 CrewAI 子智能体，把**真实工具对象**绑定到 Agent（非仅描述文本）。
 
         依赖 crewai（本环境未安装时抛 CrewAIIntegrationError；集成测试在具备 crewai 的环境验证）。
         """
         try:
             from crewai import Agent, Crew, Task  # type: ignore
+            from crewai.tools import tool as crewai_tool  # type: ignore
         except Exception as exc:  # pragma: no cover - 取决于环境
             raise CrewAIIntegrationError(
                 "CREWAI_ENABLED=true 但环境中未安装 crewai；请安装并验证后开启。"
             ) from exc
-        # 构造一个绑定当前意图工具的子智能体（真实调用链：Agent → Task → 工具）。
-        tool_meta = next(t for t in BUSINESS_TOOL_SCHEMAS if t["name"] == tool_name)
+        # 构造绑定当前意图工具集的子智能体（真实调用链：Agent → tools → 工具 → adapter 校验）。
+        tools = self._build_bound_tools(crewai_tool, intent, dict(ctx))
         agent = Agent(
-            role=f"售后-{tool_meta['description']}",
-            goal="在租户/资格校验通过前提下完成售后任务",
-            backstory="完全自托管售后子智能体",
-            llm=self._llm_for_crewai(),
+            role=f"售后-{tool_name}",
+            goal="只在租户/资格校验通过前提下完成售后任务；写操作只提交审批，不直接执行",
+            backstory="完全自托管售后子智能体，只调用已授权工具",
+            llm=self._crewai_llm(),
             allow_delegation=self.allow_delegation,
+            tools=tools,
         )
-        task_input = {"ctx": {k: v for k, v in ctx.items()
-                              if k in {"tenant_id", "user_id", "role", "order_id", "thread_id"}},
-                      "params": params}
         task = Task(
-            description=f"处理意图 {intent}，使用工具 {tool_name}；上下文为 JSON：{task_input}",
+            description=self._task_description(intent, tool_name),
             expected_output="工具调用结果摘要",
             agent=agent,
         )
@@ -121,25 +401,25 @@ class CrewAIToolRouter:
         return {"tool": tool_name, "intent": intent,
                 "crew_result": str(result) if result is not None else ""}
 
-    def _llm_for_crewai(self):
-        """提供本地模型供 CrewAI 使用（返回对象或 None 让 crewai 走默认 llm）。"""
-        if self.llm is not None and hasattr(self.llm, "model"):
-            # 复用本地 OpenAI 兼容 client 的 model；若需完整 LLM 对象请扩展。
-            return self.llm.model
-        return None
-
     @property
     def mock_calls(self) -> list[dict]:
         """最近一次确定性后端的调用链记录（供测试断言）。"""
         return self._mock.calls
 
 
-def build_crewai_router(settings, adapter: Optional[EcommerceAdapter] = None) -> CrewAIToolRouter:
-    """按配置构造 CrewAI 工具路由（默认关闭，走确定性后端）。"""
+def build_crewai_router(settings, adapter: Optional[EcommerceAdapter] = None,
+                        store=None) -> CrewAIToolRouter:
+    """按配置构造 CrewAI 工具路由（默认关闭，走确定性后端）。
+
+    - `store`（可选）：供写工具创建待审批 operation/approval；主图接入时应传入。
+    - 自托管 LLM 配置来自 settings（llm_base_url / llm_model / 网络白名单）。
+    """
     from src.tools import build_adapter as _build_adapter
     return CrewAIToolRouter(
         enabled=bool(getattr(settings, "crewai_enabled", False)),
         llm=None,
         adapter=adapter or _build_adapter(settings),
+        store=store,
+        settings=settings,
         allow_delegation=bool(getattr(settings, "crewai_allow_delegation", True)),
     )

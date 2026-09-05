@@ -9,9 +9,15 @@
 > 一律标注为部署期执行项。
 > **定稿依据说明（git 实测，唯一事实来源）**：
 > **基线 commit 链**：`7941246`（已测功能）→ `ad168ef`/`8be2d97`/`03819a8`（可复现构建）→ `3268a1c`（clean-context 断言）→ `696444a`（migrations 复合外键修复）→ `8ddca48`（接受运行面+部署配置）→ `cd743d3`（`BUSINESS_DATA_BACKEND=postgres`）→ `cde30fb`（T1/T7 发布基线证据+迁移修复复验+生产栈健康）。
-> `release/v1.0.0-rc1` = `cd743d3`（annotated tag 对象 `2120c4b`，peel 到 commit `cd743d3`）。`release/v1.0.0-rc2` = **基线尖端**（历史基线 `59e37f2`(rc2 定稿) 之上叠加阶段一发布基线收口提交；以 tag 为锚）。当前 HEAD = **基线尖端**（阶段一已收口提交，以 `release/v1.0.0-rc2` 为锚）。
-> **工作区 `git status --porcelain` clean**（阶段一已提交收口：统一发布口径 + 归档证据 + 清理临时产物）。运行面源码与部署配置已入 `cd743d3`/`cde30fb`/`59e37f2`；本次 rc2 校订项 `README.md`（生产候选口径）与 `IMAGE_DIGESTS.json`（rc2 口径）已随阶段一收口提交纳入。
+> `release/v1.0.0-rc1` = `cd743d3`（annotated tag 对象 `2120c4b`，历史锚点）。`release/v1.0.0-rc2` = annotated tag 对象 `290b830` → commit `fa7c9a3`（历史锚点，不可移动；`bca4861` 为 rc2 谱系早期收口 commit 父提交，非 rc2 锚）。**当前发布锚点 = `release/v1.0.0-rc4-candidate`**（自 `release/v1.0.0-rc3` 之上叠加"阶段一 rc4-candidate 收口"提交；`release/v1.0.0-rc3` = annotated tag 对象 `d1d2867` → commit `3ccab5c` 为历史锚点）。
+> **工作区 `git status --porcelain` clean**（阶段一已提交收口：统一发布口径 + 归档证据 + 清理临时产物）。运行面源码与部署配置已入 `cd743d3`/`cde30fb`/`59e37f2`；本次 rc3 校订项 `README.md`（生产候选口径）与 `IMAGE_DIGESTS.json`（rc3 口径）已随阶段一收口提交纳入。
 > 镜像 digest 为**工作树构建、非字节级可复现**（见 G2 边界标注）；后续 "rc2 commit + `git archive` clean-context 重建" 列为部署期执行项。
+
+> **rc2 锚定口径修正（✨ 定稿 · release-manager 2026-09-05 · 经队长 git 复测确认）**：
+> `release/v1.0.0-rc2` = annotated tag 对象 **`290b830`** → commit **`fa7c9a3`**（rc2 文档收口尖端）。**`bca4861` 为 rc2 谱系早期"阶段一 rc2 基线收口" commit（祖先），不是 rc2 tag/锚**，仅作历史留存。本文档及 `FINAL_ACCEPTANCE.md` 凡涉及 rc2 锚定的表述均以此为准；rc1 锚保留 `cd743d3` 不变。已同步修正 `PROJECT_STATUS.md`/`README.md`/`IMAGE_DIGESTS.json`/`BASELINE_LOCK.md`/`RELEASE_CHECKLIST.md`。基线链定稿：`7941246→3268a1c(可复现构建)→696444a→8ddca48→cd743d3(rc1)→cde30fb→59e37f2→bca4861(rc2 早期收口 commit, 祖先)→fa7c9a3(rc2 tag 目标)→阶段一 rc3 收口(3ccab5c=rc3 tag 目标==HEAD)`。
+
+> **rc4-candidate 更新记录（✨ RC4-prod-readiness · release-manager 2026-09-05）**：
+> 当前权威发布锚点由 rc3（`release/v1.0.0-rc3`→`3ccab5c`）推进至 **rc4-candidate（`release/v1.0.0-rc4-candidate`）**；rc1/rc2/rc3 均为**不可移动历史锚点**。权威测试快照更新为 **396 passed, 34 skipped, EXIT=0**（41.92s，`evidence/prod-go-live/test-runner/pytest_captain_baseline.log`；34 skipped = 33 项 PostgreSQL 无 `DATABASE_URL` + 1 项 CrewAI 无 crewai）。**Go/No-Go 结论不变：当前仍 `NO-GO`**——受信 TLS(G10)、真实租户书面确认(G13)、真实权重模型评测(G5)、7 天观察(G14)、真实资金链路(G6) 仍为 BLOCKED-需外部。
 
 - 记录 ID：`GONOGO-PROD-20260904`
 - 定稿时间：2026-09-04（t6）
@@ -65,17 +71,17 @@
 ## 二、逐项详表（定稿）
 
 ### G1 代码 tag（生产发布基线）—— ✅ 实测（基线忠实，rc1 精确=cd743d3）
-- **判定**：发布基线忠实。**已测功能基线**＝`7941246`（baseline-prod-1）。**可复现构建链**含 `ad168ef`/`8be2d97`/`03819a8`/`3268a1c`；迁移修复 `696444a`（`fix(migrations): shipping_events 复合外键修复`，全新 prod-like 库 clean migrate exit 0）已纳入；运行面源码+部署配置已入 `8ddca48`，`cd743d3` 补 `BUSINESS_DATA_BACKEND=postgres`，`cde30fb` 补发布基线/生产栈健康证据。**`release/v1.0.0-rc1`精确指向 `cd743d3`**（tag 对象 `2120c4b`），此后 HEAD 前进至 `cde30fb`（新增 DEPLOY_BASELINE/PROD_STACK_HEALTH/IMAGE_DIGESTS/BASELINE_COMMIT_SCOPE 4 份证据），再前进至 `59e37f2`（rc2 定稿），再叠加**阶段一发布基线收口提交**（基线尖端，当前 HEAD）。
-- **本次 rc2**：`release/v1.0.0-rc2` 以**基线尖端**为锚（历史基线 `59e37f2`(rc2 定稿)）。**git 状态 clean**：阶段一发布基线收口提交已纳入（统一口径+归档证据+清理临时产物）。
+- **判定**：发布基线忠实。**已测功能基线**＝`7941246`（baseline-prod-1）。**可复现构建链**含 `ad168ef`/`8be2d97`/`03819a8`/`3268a1c`；迁移修复 `696444a`（`fix(migrations): shipping_events 复合外键修复`，全新 prod-like 库 clean migrate exit 0）已纳入；运行面源码+部署配置已入 `8ddca48`，`cd743d3` 补 `BUSINESS_DATA_BACKEND=postgres`，`cde30fb` 补发布基线/生产栈健康证据。**`release/v1.0.0-rc1`精确指向 `cd743d3`**（tag 对象 `2120c4b`），此后 HEAD 前进至 `cde30fb`（新增 DEPLOY_BASELINE/PROD_STACK_HEALTH/IMAGE_DIGESTS/BASELINE_COMMIT_SCOPE 4 份证据），再前进至 `59e37f2`（rc2 定稿），再叠加**阶段一 rc3 收口提交**（基线尖端 = 当前 HEAD = `3ccab5c` = rc3 tag 目标）。
+- **本次 rc3**：`release/v1.0.0-rc3`（annotated tag 对象 `d1d2867` → commit `3ccab5c`）为当前发布锚点（rc1/rc2 为历史锚点）。**git 状态 clean**：阶段一 rc3 收口提交已纳入（统一口径+归档证据+清理临时产物）。
 - **证据**：`evidence/prod-go-live/deploy-engineer/git-baseline.txt`、`DEPLOY_BASELINE.md`、`IMAGE_DIGESTS.json`（release_baseline）；本会话 `git rev-parse`/`git rev-list`/`git status --porcelain` 复核（提交后 0 条）。
-- **诚实边界**：`DEPLOY_BASELINE.md` §1.1 "HEAD=3268a1c" 为 t1 早期快照；以 `cd743d3`/`cde30fb`/`59e37f2` 及**基线尖端**为准。**rc1 本身不含 `cde30fb` 的 4 份发布证据**——正式发布 tag 为 `release/v1.0.0-rc2`（**基线尖端，以 tag 为锚**）。
+- **诚实边界**：`DEPLOY_BASELINE.md` §1.1 "HEAD=3268a1c" 为 t1 早期快照；以 `cd743d3`/`cde30fb`/`59e37f2` 及**基线尖端**为准。**rc1 本身不含 `cde30fb` 的 4 份发布证据**——当前正式发布 tag 为 `release/v1.0.0-rc3`（=3ccab5c，当前发布锚点；rc1/rc2 为历史锚点）。
 
 ### G2 镜像 digest—— ⚠️ 部分（内容/配置确定性 ✅；字节级冷构建【未复现 = 部署期执行项】）
 - **判定**：镜像 digest 已记录且**内容/配置确定性达成**；deploy 管线（base 钉 digest + 依赖 `==`/lock + `git archive` 固定 mtime + `SOURCE_DATE_EPOCH` + `--pull` 层缓存）设计上**可复现**。**⚠️ 字节级冷构建一致性未在本会话实证**：① Docker engine 对当前非提升 token 拒连（`npipe:////./pipe/dockerDesktopLinuxEngine` `permission denied`），**无法真实重跑 `git archive` clean-context 构建**；② 既有 BuildKit（本环境 buildx）亦存在"同上下文两次 `--no-cache` 冷构建 digest 不同"非确定限制（`--reproducible` 在本 buildx 不可用）。因此 **字节级冷构建列为部署期执行项/BLOCKED-需 Docker engine 可连接**，属"字节级复现残余风险"，非内容/逻辑阻断。
-- **证据（本 rc2 观测值，工作树构建、代码==基线）**：`evidence/prod-go-live/deploy-engineer/IMAGE_DIGESTS.json`：
+- **证据（本 rc3 口径观测值：运行面基线 cde30fb 工作树构建、代码==基线，非 rc3 现场重建）**：`evidence/prod-go-live/deploy-engineer/IMAGE_DIGESTS.json`：
   - `api/worker/migrate`：`after-sales-prod-api@sha256:5d39f030697e1b00ef83fb22a3358ddd2f923be6752a082d9f31d20f4039f293`（**含 migrations 复合外键修复重建**，base `python:3.12-slim@sha256:78387bc...` 钉定）。
   - `frontend`：`after-sales-prod-frontend@sha256:12c35ff738c4b29fba0562c7677d086ab15516cbcaf6a2b53f77dc22b2886cad`（base `node:20-alpine@sha256:fb4cd12c...` 钉定）。
-- **诚实备注**：以上为**工作树构建、非字节级可复现、非 `git archive` clean-context 重建产物**；代码与基线一致（含迁移修复）。**切勿视为"已 clean-context 字节级复现"**。部署期在具备 engine 访问环境跑通 `git archive release/v1.0.0-rc2 | tar -x` + `compose build --no-cache` 后，需刷新 IMAGE_DIGESTS.json 并改为"已 clean-context 字节级复现"。与 `DEPLOY_BASELINE` §7#2（rc1"⚠️ 待干净重做"）同款边界。
+- **诚实备注**：以上为**工作树构建、非字节级可复现、非 `git archive` clean-context 重建产物**；代码与基线一致（含迁移修复）。**切勿视为"已 clean-context 字节级复现"**。部署期在具备 engine 访问环境跑通 `git archive release/v1.0.0-rc3 | tar -x` + `compose build --no-cache` 后，需刷新 IMAGE_DIGESTS.json 并改为"已 clean-context 字节级复现"。与 `DEPLOY_BASELINE` §7#2（rc1"⚠️ 待干净重做"）同款边界。
 
 ### G3 RLS 动态验证—— ✅ 实测
 - **判定**：真实 PostgreSQL 动态 B1–B5 全拦。
@@ -167,7 +173,7 @@
 3. **G5 真实权重模型**：先修覆写证据的测试 → 部署真实自托管端点 → 对 `self-hosted-model` 评测产出全量 24 用例 `write_op_pass=true` → `HIGH_CONFIDENCE_MODELS` 显式列出该 id。
 4. **G6 真实资金链路**：部署生产网关沙箱（或真实资金渠道联测），`EXECUTION_PROVIDER=live/sandbox_http` + fail-closed。
 5. **G14 7 天观察**：切 live 后连续 7 天观测达标。
-6. **G2/G8/G9 部署期复验（切 live 前必办）**：`git archive release/v1.0.0-rc2` clean-context 字节级重建并刷新 digest（需 Docker engine 可连接）；`METRICS_ALLOWED_SOURCES` 网段修正；alert-rules 权威文件对齐；当前构建重建对账/指标；生产栈运行时 RLS/告警端到端复验；注入 Langfuse 密钥验证 trace 落地；**`pre_deploy_checks.sh` 在具备 docker+bash+PG 的目标服务器补全**（本沙箱无 docker/bash，静态=仓库不干净→FAIL、compose/secret→CANNOT RUN、总体 BLOCKED，**未宣称已通过**）。
+6. **G2/G8/G9 部署期复验（切 live 前必办）**：`git archive release/v1.0.0-rc3` clean-context 字节级重建并刷新 digest（需 Docker engine 可连接）；`METRICS_ALLOWED_SOURCES` 网段修正；alert-rules 权威文件对齐；当前构建重建对账/指标；生产栈运行时 RLS/告警端到端复验；注入 Langfuse 密钥验证 trace 落地；**`pre_deploy_checks.sh` 在具备 docker+bash+PG 的目标服务器补全**（本沙箱无 docker/bash，静态=仓库不干净→FAIL、compose/secret→CANNOT RUN、总体 BLOCKED，**未宣称已通过**）。
 7. **放量审批**：`SCALEUP_APPROVAL-<ts>.md` 目标租户 `admin`/`approver` 二次确认。
 
 ### 放量红线（任一触发即关 live 转人工并评估回滚）
@@ -175,16 +181,16 @@
 
 ---
 
-## 四、tag / 镜像 digest / 迁移版本一致性（本次 rc2 口径）
+## 四、tag / 镜像 digest / 迁移版本一致性（本次 rc3 口径）
 
 > 项目**不设数字 schema 版本号**（业务 schema 全为 `CREATE TABLE IF NOT EXISTS` 幂等建表）；`checkpoint_migrations` 表 version 由官方 `langgraph-checkpoint-postgres==3.1.2` 迁移机制维护（非项目代码）；`deploy_config_version="0.1.0"` 为部署配置版本（`src/config.py`，非 schema）。因此"一致性"以**4 点**表述：
 
-1. **迁移定义 commit**：`696444a`（`shipping_events` 复合外键修复）为基线 commit（`cd743d3`）祖先；rc2 基线 commit 链含之。
-2. **镜像 digest 来源**：api `after-sales-prod-api@sha256:5d39f030...`、frontend `after-sales-prod-frontend@sha256:12c35ff7...` 均**自基线 commit 构建、含迁移修复**（当前为工作树构建，字节级 clean-context 重建=部署期执行项）。
+1. **迁移定义 commit**：`696444a`（`shipping_events` 复合外键修复）为基线 commit（`cd743d3`）祖先；rc3 基线 commit 链含之。
+2. **镜像 digest 来源**：api `after-sales-prod-api@sha256:5d39f030...`、frontend `after-sales-prod-frontend@sha256:12c35ff7...` 均**为运行面基线 `cde30fb` 的工作树构建观测值、含迁移修复**（非 rc3 现场重建；字节级 clean-context 重建=部署期执行项）。
 3. **全新库 clean migrate**：`MIGRATE_VERIFY.md` 全新 prod-like 库 `migrate_cli` exit 0（17 表、复合 FK 正确、RLS FORCE 生效、无 InvalidForeignKey）。
 4. **checkpoint 版本驱动**：`langgraph-checkpoint-postgres==3.1.2`（`requirements-lock.txt` 钉定），官方 `checkpoint_migrations` 表结构由该依赖迁移机制维护；`deploy_config_version`（`src/config.py`）== `DEPLOY_CONFIG_VERSION`（`deploy/.env.production`）== compose 默认 `${DEPLOY_CONFIG_VERSION:-0.1.0}`（三处一致）。
 
-> **统一不变量**：`tag.commit（release/v1.0.0-rc2）== build_ref == migrations_schema_source == config_version_source`。`IMAGE_DIGESTS.json` 的 `release_baseline.tag/commit` 字段必须与 tag 精确一致（本次 rc2 在单个 commit 建 annotated tag）。**校验动作**（放量前）：`git rev-parse release/v1.0.0-rc2^{commit}` == 记录值；该 commit 的 `migrations.py` 构成镜像内 schema；digest 与 tag 一一对应；全新库 migrate exit 0 + 全容器 healthy 配套记录。【Docker engine 当前不可连接（非提升 token），clean-context 字节级重建及 digest 刷新列为部署期执行项 / BLOCKED-需 engine 可连接（提升完整 Admin token 或加入 docker-users 组）。】
+> **分离变量（RC3 口径 · 定稿，替代旧"统一不变量"）**：**不再假设四者相等**。`release-tag.commit(rc3) = 3ccab5c`（发布证据/收口提交）；`runtime-surface baseline = cde30fb`（src/deploy 运行面；rc2/rc3 未改，== `IMAGE_DIGESTS.release_baseline.commit`）；`migrations.schema source = 696444a`（migrations.py）；`config_version = 0.1.0`。**tag 所在 commit 与运行面基线允许不同**（rc3 为 docs/tests/gitignore-only 收口，不改 src/deploy 运行面）。**校验动作**（放量前，须分别核对、不可假设四者相等）：① `git rev-parse release/v1.0.0-rc3^{commit}` == `3ccab5c`；② `IMAGE_DIGESTS.release_baseline.commit` == `cde30fb`；③ 迁移 `696444a` 的 `migrations.py` 构成镜像内 schema；④ `deploy_config_version` == `0.1.0` 三处一致；⑤ 全新库 migrate exit 0 + 全容器 healthy 配套记录。【Docker engine 当前不可连接（非提升 token），clean-context 字节级重建及 digest 刷新列为部署期执行项 / BLOCKED-需 engine 可连接（提升完整 Admin token 或加入 docker-users 组）。】
 
 ---
 

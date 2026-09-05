@@ -125,8 +125,9 @@
 - **受限环境熔断阈值**：`CircuitBreaker.enabled = failure_threshold>0`，若受限环境误配
   `llm_cb_failure_threshold=0` 会禁用熔断（退化为超时/重试兜底；写操作仍 fail-closed，仅失去快速失败层）。
   建议在 launch 门控/配置校验强制受限环境阈值 >0。
-- **CrewAI 上下文注入 Task 描述**（`crewai_adapter._run_real`）：`crewai_enabled=False`（默认关闭），
-  开启前应评估脱敏/最小化。
+- **CrewAI 上下文注入 Task 描述**（`crewai_adapter._run_real`）：已修复 · 闭环注入（t1）——工具对象现经
+  闭包注入服务端 `ctx`（tenant_id/user_id/role），`_task_description` 仅暴露用途与可用工具、不再拼入身份字段；
+  模型不可覆盖租户身份。`crewai_enabled=False`（默认关闭）仍为安全前提。
 - **`policy_documents()`（`postgres_data_source.py`）在 FORCE RLS 下未设置 `app.tenant_id` 即全量查询会返回空**：
   仅被 `src/retrieval/factory.py` 的 **milvus** 分支用作语料预载；**默认 keyword 分支走
   `DataSourceRetriever.search → search_policy`（租户作用域），不受影响**。
