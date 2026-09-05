@@ -48,7 +48,7 @@
 | G10 / A9 受信 TLS | 现有证书自签（CN=preview.local），无受信 CA 链 | deploy-engineer | 真实域名 + 受信 CA fullchain + `nginx -t` + `openssl s_client`(`:8843`) 复核 |
 | G13 / A1 真实租户书面确认 | `LAUNCH_ALLOWED_TENANTS=__NONE_APPROVED_YET__`、`AUTH_LOGIN_CREDENTIALS={}`，无确认函 | release-manager / 业务方 | 业务方签署确认函 + PHC 注入 + 白名单/凭据 + 成员/角色授予 + 审计 |
 | G14 / A11 7 天观察 | 当前未切 live，观察期未开始 | observability-engineer | 切 live 后 ≥7 天连续观测 + 每日恢复演练 + 告警无红线 |
-| G5 / A10 真实权重模型评测 | preview `LLM_BACKEND=mock`、`127.0.0.1:8001` 连接拒绝；`llm_candidate_eval.json` 仅 stub；能力矩阵/写门控 ✅ PASS 但非真实模型证明 | acceptance-engineer | 真实自托管权重端点 + `write_op_pass=true` 报告 → `HIGH_CONFIDENCE_MODELS` 显式列出 |
+| G5 / A10 真实权重模型评测 | 代表性自托管端点上的 CrewAI 调用已验证；当前端点仍非真实权重模型，不能作为生产写模型证明 | acceptance-engineer | 真实自托管权重端点 + `write_op_pass=true` 报告 → `HIGH_CONFIDENCE_MODELS` 显式列出 |
 | G6 / A5 真实资金链路 | 生产网关沙箱未部署（preview `EXECUTION_PROVIDER=mock`）；沙箱链路代码/测试级 ✅ PASS | deploy-engineer + acceptance-engineer | 部署内网 `sandbox_gateway` + `EXECUTION_PROVIDER=sandbox_http` + 端到端复跑 + shadow-only 提交 |
 
 ## 六、部署期执行项（非边界4外部因，但未本机闭环 ⚠️）

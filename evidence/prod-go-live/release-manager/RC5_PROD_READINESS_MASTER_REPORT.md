@@ -2,7 +2,8 @@
 
 > 审查日期：2026-09-05  
 > 当前分支：`codex/prod-readiness`  
-> 当前发布锚点：`release/v1.0.0-rc5-candidate` → `8d44e80`  
+> 历史生产候选锚点：`release/v1.0.0-rc5-candidate` → `8d44e80`
+> 当前面试交付锚点：`interview-freeze-2026-09-05` → `682ecdd`
 > 审查基线时工作树：`git status --porcelain` clean；本次发布收口优化会产生待提交文档变更
 
 ## 结论
@@ -11,7 +12,7 @@
 
 已完成的工程能力包括：多租户认证与隔离、统一 SSE 对话入口、退款/退货人工审批、租户级幂等、CrewAI 主链路契约、沙箱网关运行态验证、回滚和灾备演练设计。
 
-以下事项仍未闭环：真实自托管模型与真实 CrewAI 运行、生产 PostgreSQL/RLS 专栈复验、真实租户书面确认、受信 TLS、目标生产服务器、真实资金渠道、生产观测密钥与 7 天 Shadow。
+以下事项仍未闭环：真实权重模型能力、生产 PostgreSQL/RLS 专栈复验、真实租户书面确认、受信 TLS、目标生产服务器、真实资金渠道、生产观测密钥与 7 天 Shadow。代表性自托管端点上的 CrewAI 工具调用已在独立环境完成验证。
 
 ## 阶段状态
 
@@ -28,14 +29,14 @@
 
 ## 测试口径
 
-权威归档证据为 `411 passed / 0 failed / 34 skipped / EXIT=0`。34 个跳过项由 33 个 PostgreSQL 数据面测试和 1 个真实 CrewAI 集成测试构成。因此该数字只能说明非外部依赖测试通过，不能等同于生产验证通过。
+当前工作树最新回归为 `414 passed / 0 failed / 34 skipped / EXIT=0`（`RUN_CREWAI_INTEGRATION=1`）。34 个跳过项主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试；CrewAI 专项已通过。该数字不能等同于真实权重模型或生产验证通过。
 
-2026-09-05 在独立 PostgreSQL 17 临时容器上完成 tag 后工作树复验：PostgreSQL 子集 `33 passed`；非 PostgreSQL 两批合计 `411 passed / 1 skipped`。当前工作树综合为 **444 passed / 0 failed / 1 skipped**，唯一跳过项为真实 CrewAI + 自托管 LLM 集成。该结果尚未绑定新 tag，不能覆盖 RC5 tag 的历史证据。
+2026-09-05 的补充验证确认：CrewAI 专项 `74 passed / 1 skipped`，全量回归 `414 passed / 34 skipped`。跳过项与数据库环境有关，不代表失败；真实权重模型仍属于边界4阻断项。该结果由面试冻结提交记录，不覆盖历史 RC5 发布标签。
 
 ## 生产阻塞项
 
 1. 真实自托管权重模型端点和写操作专项评测。
-2. 真实 CrewAI + LLM 集成测试。
+2. 真实权重模型 + LLM 集成测试。
 3. 目标生产 PostgreSQL、RLS、备份恢复和告警复验。
 4. 生产域名和受信 CA TLS。
 5. 真实租户确认函、PHC 登录凭据和审批角色。

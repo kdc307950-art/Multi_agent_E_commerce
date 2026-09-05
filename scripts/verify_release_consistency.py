@@ -32,7 +32,7 @@ def fail(message: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tag", default="release/v1.0.0-rc5-candidate")
+    parser.add_argument("--tag", default="interview-freeze-2026-09-05")
     parser.add_argument("--expected-commit", default=None)
     args = parser.parse_args()
 
@@ -50,7 +50,7 @@ def main() -> int:
     rc5_report = (
         ROOT / "evidence/prod-go-live/release-manager/RC5_PROD_READINESS_MASTER_REPORT.md"
     ).read_text(encoding="utf-8")
-    test_report = (ROOT / "evidence/prod-go-live/test-runner/TEST_EVIDENCE_RC5.md").read_text(
+    test_report = (ROOT / "evidence/prod-go-live/test-runner/TEST_EVIDENCE_WORKTREE_20260905.md").read_text(
         encoding="utf-8"
     )
 
@@ -59,7 +59,7 @@ def main() -> int:
         "Go/No-Go current commit": head[:7],
         "RC5 report tag": args.tag,
         "RC5 report commit": head[:7],
-        "RC5 test count": "411 passed",
+        "RC5 test count": "414 passed",
         "RC5 skipped count": "34 skipped",
     }
     for label, needle in required.items():
