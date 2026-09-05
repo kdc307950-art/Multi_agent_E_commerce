@@ -46,7 +46,7 @@ PostgreSQL 数据面原有 33 个跳过测试已全部实际执行并通过：
 - `GET http://127.0.0.1:8001/v1/models`：返回 `self-hosted-model`，端点可达。
 - `scripts/evaluate_models.py --llm-backend openai_compatible`：专项评测报告显示 `write_op_pass=true`。
 - `.accept-crewai-venv` 已安装 CrewAI，真实集成测试已实际启动 CrewAI → LiteLLM → 本地端点。
-- 代表性端点上的真实集成测试已通过：CrewAI 实际执行绑定工具并完成查询/退款审批前置链路。
+- 代表性端点上的集成测试已通过：CrewAI 实际执行绑定工具并完成查询/退款审批前置链路；该端点是 Mock/代表性引擎，不代表 Ollama 权重模型。
 - 端点源码 `src/llm/self_hosted_server.py` 明确复用 `MockLLM` 规则引擎，因此该端点属于**自托管代表性/Mock 引擎**，不是真实权重模型。
 
 结论：本轮完成了 CrewAI 运行环境和本地代表性端点的真实工具调用验证；**真实权重模型工具调用能力仍 BLOCKED**。适配层已修复 LiteLLM 对 OpenAI-compatible 模型 provider 前缀的要求（`openai/<model>`）。
