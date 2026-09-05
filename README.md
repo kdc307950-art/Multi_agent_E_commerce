@@ -104,7 +104,7 @@
 |---|---|---|
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
-| 自动化测试 | **全量 pytest：416 passed, 35 skipped**（EXIT=0；2026-09-05）。其中新增 1 项为本机 Ollama 协议探针（默认跳过）；其余跳过主要为未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 CrewAI 安全链路。 |
+| 自动化测试 | **全量 pytest：416 passed, 35 skipped**（EXIT=0；2026-09-05）。其中新增 1 项为本机 Ollama 协议探针（默认跳过）；其余跳过主要为未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/` 或 `scripts/run_interview_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/interview_acceptance_report.json`。 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
 | 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 langgraph **同环境导入并运行真实调用链**（`test_crewai_real_call_chain_integration` 1 passed）；**真实权重模型未验证** |
 | 前端 | **容器内构建成功** | `docker build frontend` 成功（Next.js 14.2.5 `Ready`，`/` 返回 200）；本机 npm 受安全策略限制，故在容器内构建验证 |

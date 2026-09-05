@@ -63,6 +63,7 @@
 - ✅ **已提交收口**：阶段一 rc3 发布基线收口提交已纳入（测试默认写临时目录 + 真实 390/34 口径 + uv.lock 不入库），**基线提交时刻工作区 clean**（以 `release/v1.0.0-rc3` 为锚）。**当前 working tree 因团队证据编辑非 clean**。
 - ✅ 重定稿 `GO_NO_GO.md` / `FINAL_ACCEPTANCE.md`，统一四证据边界，消除"已完成/未接入"矛盾（修正 rc1→cd743d3、A8/G9 生产栈健康已证实、迁移版本 4 点表述；**rc3 以基线尖端为锚** 口径）。
 - ✅ 统一 `README.md` 生产候选版口径；历史 RC4/RC5 数字保留为历史记录，当前工作树全量回归为 **416 passed / 35 skipped**（EXIT=0；2026-09-05）。
+- ✅ 新增 `scripts/run_interview_acceptance.py`，可生成 `evidence/interview_acceptance_report.json`；报告只记录实际 pytest 结果，不把 skipped 或真实外部依赖缺失升级为通过。
 - ✅ `release/v1.0.0-rc3` 标签（→ 基线尖端）；镜像 digest、迁移版本（4 点）与 tag 一致。
 - ✅ 所有未验证项均有明确责任人 + 解锁条件（见 §五）。
 

@@ -33,6 +33,7 @@
 ```powershell
 $env:RUN_CREWAI_INTEGRATION='1'
 .accept-crewai-venv\Scripts\python.exe -m pytest -q tests/test_crewai_main_path.py tests/test_hardening_acceptance.py tests/test_llm_endpoint_gate.py
+.venv\Scripts\python.exe scripts/run_interview_acceptance.py
 python scripts/live_e2e.py
 ```
 

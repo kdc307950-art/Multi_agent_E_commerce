@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-09-05T16:45:00.041044+00:00",
+  "command": "D:\\software\\PythonProject1\\PythonProject\\Multi_agent_E_commerce\\.venv\\Scripts\\python.exe -m pytest -q",
+  "exit_code": 0,
+  "pytest": {
+    "failed": 0,
+    "errors": 0,
+    "passed": 416,
+    "skipped": 35
+  },
+  "evidence_boundaries": {
+    "unit_and_contract": "observed_by_pytest",
+    "postgres_rls": "only_pass_if_postgres_tests_are_not_skipped",
+    "external_model": "not_claimed_by_this_report",
+    "production": "NO-GO"
+  }
+}
