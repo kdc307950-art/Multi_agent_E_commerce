@@ -24,6 +24,8 @@ import re
 import time
 from typing import Optional
 
+import httpx
+
 from src.core.types import OperationStatus, PendingAction, generate_operation_key
 from src.tools import AdapterError, EcommerceAdapter
 
@@ -43,6 +45,7 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {"order_id": {"type": "string", "description": "订单号 ORD-数字格式"}},
             "required": ["order_id"],
+            "additionalProperties": False,
         },
         "output_schema": {
             "type": "object",
@@ -57,6 +60,7 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {"order_id": {"type": "string", "description": "订单号 ORD-数字格式"}},
             "required": ["order_id"],
+            "additionalProperties": False,
         },
         "output_schema": {
             "type": "object",
@@ -74,6 +78,7 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
                 "reason": {"type": "string", "description": "退款理由"},
             },
             "required": ["order_id"],
+            "additionalProperties": False,
         },
         "output_schema": {
             "type": "object",
@@ -95,6 +100,7 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
                 "reason": {"type": "string", "description": "退货理由"},
             },
             "required": ["order_id"],
+            "additionalProperties": False,
         },
         "output_schema": {
             "type": "object",
@@ -119,6 +125,7 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
                 "detail": {"type": "string"},
             },
             "required": ["order_id"],
+            "additionalProperties": False,
         },
         "output_schema": {
             "type": "object",
@@ -137,6 +144,7 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {"reason": {"type": "string", "description": "升级/转人工理由"}},
             "required": [],
+            "additionalProperties": False,
         },
         "output_schema": {
             "type": "object",
@@ -351,6 +359,152 @@ class CrewAIToolRouter:
         # local to the self-hosted adapter so this claim is explicit and
         # auditable; the endpoint still must return/parse standard tool calls.
         class _SelfHostedLLM(LLM):
+            """给 CrewAI 默认 ReAct 执行器补一个显式原生工具调用入口。
+
+            CrewAI 0.152 的普通 Agent 首轮调用不会把 tools 传给主 LLM，
+            小型自托管模型因此会退化成文本格式猜测。这里仅在本适配器配置
+            了静态工具集时，先发起一次带 tools/tool_choice 的原生调用；工具
+            没有实际执行则 fail-closed，不接受模型生成的伪摘要。
+            """
+
+            def configure_native_tool_calling(self, tools, functions, tool_name):
+                self._native_tools = list(tools or [])
+                self._native_functions = dict(functions or {})
+                self._native_tool_name = str(tool_name or "")
+                self._native_attempted = False
+                self._native_executed = False
+                # Unit tests use lightweight CrewAI stand-ins that do not
+                # implement the real LLM.call contract. Keep those on the
+                # existing fake Crew path; enable direct mode only when the
+                # actual CrewAI base class exposes call().
+                self._native_direct_mode = callable(getattr(LLM, "call", None))
+
+            def call(self, messages, tools=None, callbacks=None,
+                     available_functions=None, from_task=None, from_agent=None):
+                native_tools = getattr(self, "_native_tools", [])
+                if (native_tools and getattr(self, "_native_attempted", False)
+                        and not getattr(self, "_native_executed", False) and not tools):
+                    # CrewAI may retry after a malformed/text response. Do not let
+                    # those retries re-enter its ReAct parser and invoke tools with
+                    # guessed arguments; the native attempt is already terminal.
+                    raise CrewAIIntegrationError(
+                        "自托管 LLM 原生工具调用失败，拒绝 ReAct 文本重试。"
+                    )
+                if native_tools and not tools and not getattr(self, "_native_attempted", False):
+                    self._native_attempted = True
+                    # 只在这次带工具的请求中注入 tool_choice，避免污染后续普通调用。
+                    previous_choice = self.additional_params.pop("tool_choice", None)
+                    self.additional_params["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": self._native_tool_name},
+                    }
+                    try:
+                        try:
+                            result = super().call(
+                                messages,
+                                tools=native_tools,
+                                callbacks=callbacks,
+                                available_functions=self._native_functions,
+                                from_task=from_task,
+                                from_agent=from_agent,
+                            )
+                        except Exception:
+                            # A transient local endpoint error (503/timeout) must
+                            # not enter CrewAI's ReAct retry loop. Try the compact
+                            # native request once; any failure remains fail-closed.
+                            result = self._direct_native_call(messages)
+                    finally:
+                        self.additional_params.pop("tool_choice", None)
+                        if previous_choice is not None:
+                            self.additional_params["tool_choice"] = previous_choice
+                    if not getattr(self, "_native_executed", False):
+                        # LiteLLM 可能已成功返回 HTTP 200，但把模型普通文本直接
+                        # 当成 LLM 结果。用简洁原生请求再试一次，仍失败则 fail-closed。
+                        result = self._direct_native_call(messages)
+                    # 已经在 LLM 层执行过绑定工具，返回最终答案以结束 CrewAI ReAct 循环，
+                    # 避免执行器再次重复调用同一工具。
+                    return f"Thought: 原生工具调用已完成。\nFinal Answer: {result}"
+                return super().call(
+                    messages,
+                    tools=tools,
+                    callbacks=callbacks,
+                    available_functions=available_functions,
+                    from_task=from_task,
+                    from_agent=from_agent,
+                )
+
+            def mark_native_tool_executed(self):
+                self._native_executed = True
+
+            def _direct_native_call(self, messages):
+                """重试本地兼容端点并严格执行唯一绑定工具。"""
+                endpoint = str(getattr(self, "base_url", "") or getattr(self, "api_base", ""))
+                if not endpoint:
+                    raise CrewAIIntegrationError("自托管 LLM 缺少 base_url，拒绝降级为文本结果。")
+                endpoint = endpoint.rstrip("/")
+                if not endpoint.endswith("/chat/completions"):
+                    endpoint = f"{endpoint}/chat/completions"
+                model = str(getattr(self, "model", "") or "")
+                if model.startswith("openai/"):
+                    model = model.split("/", 1)[1]
+                text = ""
+                if isinstance(messages, list):
+                    # CrewAI 0.152 may collapse the task into a system message;
+                    # inspect all message content for the already validated order
+                    # locator, while never extracting tenant/user/role identity.
+                    text = "\n".join(
+                        str(item.get("content") or "")
+                        for item in messages
+                        if isinstance(item, dict)
+                    )
+                if not text:
+                    text = "请调用已绑定工具完成任务。"
+                order_match = re.search(r"ORD-\d+", text)
+                # 小型模型在 CrewAI 长系统提示下容易退化为普通文本；原生重试
+                # 使用最小、确定的业务指令，避免把 ReAct 格式要求带回模型。
+                order_id = order_match.group(0) if order_match else ""
+                if self._native_tool_name == "query_order" and order_id:
+                    compact = f"查询订单 {order_id}，只调用 query_order 工具。"
+                elif self._native_tool_name == "process_refund" and order_id:
+                    compact = f"申请订单 {order_id} 退款，只调用 process_refund 工具。"
+                else:
+                    compact = f"{text}\n只调用 {self._native_tool_name} 工具。"
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": compact}],
+                    "tools": self._native_tools,
+                    "tool_choice": {"type": "function", "function": {"name": self._native_tool_name}},
+                    "temperature": 0,
+                    "max_tokens": self.max_tokens or self.max_completion_tokens or 512,
+                }
+                if isinstance(self.additional_params, dict) and "think" in self.additional_params:
+                    payload["think"] = self.additional_params["think"]
+                headers = {"Authorization": f"Bearer {self.api_key}"} if getattr(self, "api_key", None) else {}
+                try:
+                    response = httpx.post(endpoint, json=payload, headers=headers,
+                                          timeout=float(getattr(self, "timeout", 10.0)))
+                    response.raise_for_status()
+                    message = response.json().get("choices", [{}])[0].get("message", {})
+                    calls = message.get("tool_calls") or []
+                    if len(calls) != 1:
+                        raise CrewAIIntegrationError(
+                            "自托管端点必须返回恰好一个原生 tool_call，拒绝歧义结果。"
+                        )
+                    function = calls[0].get("function", {})
+                    name = function.get("name")
+                    if name != self._native_tool_name or name not in self._native_functions:
+                        raise CrewAIIntegrationError(f"端点返回未授权工具 {name!r}，拒绝执行。")
+                    arguments = json.loads(function.get("arguments") or "{}")
+                    if not isinstance(arguments, dict):
+                        raise CrewAIIntegrationError("端点返回的工具参数不是 JSON 对象。")
+                    result = self._native_functions[name](**arguments)
+                    self.mark_native_tool_executed()
+                    return result
+                except CrewAIIntegrationError:
+                    raise
+                except Exception as exc:
+                    raise CrewAIIntegrationError(f"自托管原生工具调用失败：{exc}") from exc
+
             def supports_function_calling(self) -> bool:  # pragma: no cover - exercised by CrewAI
                 return True
 
@@ -481,6 +635,57 @@ class CrewAIToolRouter:
         # 构造绑定当前意图工具集的子智能体（真实调用链：Agent → tools → 工具 → adapter 校验）。
         tools = self._build_bound_tools(crewai_tool, intent, dict(ctx))
         crew_llm = self._crewai_llm()
+        if hasattr(crew_llm, "configure_native_tool_calling"):
+            # 将 CrewAI 工具对象转换成 OpenAI-compatible schema；函数闭包仍保留
+            # 服务端 TenantContext，模型只能提供业务参数。
+            tool_names = [getattr(tool, "name", "") for tool in tools]
+            native_tools = []
+            for name in tool_names:
+                spec = next((item for item in BUSINESS_TOOL_SCHEMAS if item["name"] == name), None)
+                if spec:
+                    native_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": spec["name"],
+                            "description": spec["description"],
+                            "parameters": spec["input_schema"],
+                        },
+                    })
+
+            native_functions = {}
+            for tool in tools:
+                name = getattr(tool, "name", "")
+                if not name:
+                    continue
+                def _invoke(_tool=tool, **kwargs):
+                    result = _tool.run(**kwargs)
+                    if hasattr(crew_llm, "mark_native_tool_executed"):
+                        crew_llm.mark_native_tool_executed()
+                    return result
+                native_functions[name] = _invoke
+            crew_llm.configure_native_tool_calling(native_tools, native_functions, tool_name)
+            # 对自托管端点走一次短提示的原生 CrewAI LLM 调用，避免 CrewAI
+            # ReAct 执行器把长系统提示交给小模型后退化为文本 Action。
+            # 工具仍是 CrewAI Tool 对象，函数闭包仍执行完整租户/权限校验。
+            if getattr(crew_llm, "_native_direct_mode", False):
+                direct_prompt = self._task_description(intent, tool_name, params)
+                direct_result = crew_llm.call(
+                    [{"role": "user", "content": direct_prompt}],
+                    available_functions=native_functions,
+                )
+                if not getattr(crew_llm, "_native_executed", False):
+                    raise CrewAIIntegrationError(
+                        "自托管 LLM 原生 tool_call 未执行绑定工具，拒绝接受文本结果。"
+                    )
+                crew_result = str(direct_result) if direct_result is not None else ""
+                out = {"tool": tool_name, "intent": intent, "crew_result": crew_result}
+                meta = self._last_write_meta if isinstance(self._last_write_meta, dict) else {}
+                for key in ("status", "operation_id", "approval_id", "refund_amount"):
+                    if meta.get(key) is not None:
+                        out[key] = meta[key]
+                if meta.get("message"):
+                    out["approval_reason"] = meta["message"]
+                return out
         agent = Agent(
             role=f"售后-{tool_name}",
             goal="只在租户/资格校验通过前提下完成售后任务；写操作只提交审批，不直接执行",
