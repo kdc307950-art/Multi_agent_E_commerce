@@ -29,7 +29,7 @@
 
 ## 测试口径
 
-当前工作树最新回归为 `428 passed / 0 failed / 35 skipped / EXIT=0`（2026-09-07；见 `evidence/acceptance_report.json`）。35 个跳过项主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试，另有外部依赖探针；该数字不能等同于 CrewAI + Qwen 运行时或生产验证通过。
+当前工作树最新回归为 `429 passed / 0 failed / 35 skipped / EXIT=0`（2026-09-07；见 `evidence/acceptance_report.json`）。35 个跳过项主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试，另有外部依赖探针；该数字不能等同于 CrewAI + Qwen 运行时或生产验证通过。
 
 2026-09-05 的补充验证属于历史快照：CrewAI/LLM 专项 `41 passed / 1 skipped`，全量回归 `416 passed / 35 skipped`。当前 Qwen3 8B 仍未通过写操作专项评测，写白名单保持关闭；代表性自托管端点的安全工具链不能替代真实权重模型生产认证。
 
