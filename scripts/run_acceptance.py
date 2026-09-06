@@ -1,4 +1,4 @@
-"""Run the reproducible interview acceptance suite and emit JSON evidence.
+"""Run the reproducible acceptance suite and emit JSON evidence.
 
 The report records only observed pytest results plus explicit environment
 metadata. It never upgrades skipped tests or external-model checks to PASS.
@@ -22,7 +22,7 @@ SUMMARY = re.compile(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", default="evidence/interview_acceptance_report.json")
+    parser.add_argument("--output", default="evidence/acceptance_report.json")
     args = parser.parse_args()
     command = [sys.executable, "-m", "pytest", "-q"]
     result = subprocess.run(command, text=True, capture_output=True)

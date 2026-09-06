@@ -1,16 +1,16 @@
 # 电商售后多智能体工单系统 — 项目索引页（README · 生产候选版）
 
 > **项目**：电商售后多智能体工单系统（E-commerce After-Sales Multi-Agent Ticket System）
-> **一句话定位**：基于 **LangGraph 主控 + CrewAI 子智能体 + 人工审批** 的售后工单面试作品。当前为**单租户、低并发、Shadow、完全自托管的 RC5 生产候选**；正式生产放量仍为 `NO-GO`。已验证 PostgreSQL/RLS、审批、幂等、沙箱和异常 fail-closed；本机 `qwen3:4b` 曾返回标准 `tool_calls`，但重复探针不稳定，**CrewAI + Qwen 运行时未纳入已通过能力，写操作继续 fail-closed**。
-> **用途**：本目录为项目的**完整交付包**，可交作业、答辩、评审、部署。本文档为入口/索引。
+> **一句话定位**：基于 **LangGraph 主控 + CrewAI 子智能体 + 人工审批** 的售后工单系统原型。当前为**单租户、低并发、Shadow、完全自托管的 RC5 生产候选**；正式生产放量仍为 `NO-GO`。已验证 PostgreSQL/RLS、审批、幂等、沙箱和异常 fail-closed；本机 `qwen3:4b` 曾返回标准 `tool_calls`，但重复探针不稳定，**CrewAI + Qwen 运行时未纳入已通过能力，写操作继续 fail-closed**。
+> **用途**：本目录为项目的**完整交付包**，支持作业提交、技术评审和部署。本文档为入口/索引。
 
-> **文档归档说明（2026-09-05）**：原始长篇设计文档已移至桌面目录 `Multi_agent_E_commerce_原始项目文档_20260905`，仓库保留 README、项目状态、冻结记录、验收证据和可执行脚本作为面试交付面。
+> **文档归档说明（2026-09-05）**：原始长篇设计文档已移至桌面目录 `Multi_agent_E_commerce_原始项目文档_20260905`，仓库保留 README、项目状态、冻结记录、验收证据和可执行脚本作为项目交付面。
 
 ---
 
 ## 一、文档一览（12 份正文 + 本索引）
 
-| # | 文档 | 定位 | 核心内容 | 答辩亮点 |
+| # | 文档 | 定位 | 核心内容 | 技术重点 |
 |---|---|---|---|---|
 | 1 | 项目需求说明书 | 要什么 | 功能需求(P0-P2)、非功能、约束、范围 | — |
 | 2 | 项目说明书（Project Specification） | 怎么搭 | 项目结构、核心模块代码、数据模型、API | — |
@@ -53,7 +53,7 @@
 ```
 
 **主干**：①要什么 → ②怎么搭 → ③内部怎么流转 → ④怎么建。
-**专项/基础设施**：⑤-⑪——每个都是可独立答辩的差异化点。
+**专项/基础设施**：⑤-⑪——每个都是可独立评审的技术重点。
 
 ---
 
@@ -61,7 +61,7 @@
 
 **评审/导师快速看**：① → ③ → ⑩（需求 → 内部架构 → 范围与验收）
 **深入实现**：④ → ② → ③（落地路线 → 结构 API → 内部细节）
-**答辩讲亮点（每个专项背一段）**：⑤ → ⑥ → ⑦ → ⑨ → ⑩ → ⑪（记忆 → 工具 → 容错 → 生产架构 → 生产/验收 → 前端工作台）
+**技术重点阅读路径**：⑤ → ⑥ → ⑦ → ⑨ → ⑩ → ⑪（记忆 → 工具 → 容错 → 生产架构 → 生产/验收 → 前端工作台）
 
 ---
 
@@ -92,7 +92,7 @@
 - **多租户**：租户上下文由服务端认证和成员关系解析；`tenant_id` 不接受客户端覆盖，并贯穿 PostgreSQL、RAG、图谱、缓存、队列、审批与审计；跨租户默认拒绝；
 - **完全自托管**：LLM、向量库、图谱、数据库和可观测均由项目方部署、配置、备份和运维；可使用项目账户下的租赁 IaaS。若接入外部 LLM 或云端可观测，必须单独披露数据流、合规和责任边界；
 - **长期记忆 = Graphiti（开源时序图谱框架）+ Neo4j**；Graphiti 可自托管，但本项目**尚未接入** Graphiti/Neo4j 运行代码，其集成、租户过滤和恢复能力仍待后续环境验证（详见《记忆架构设计》；当前状态见 §六"长期记忆＝未接入"）；
-- 每份专项文档末尾含**答辩叙事 / 追问应答**，可直接背。
+- 每份专项文档末尾含**设计说明 / 问题分析**，用于统一记录关键取舍。
 
 ---
 
@@ -104,7 +104,7 @@
 |---|---|---|
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
-| 自动化测试 | **全量 pytest：416 passed, 35 skipped**（EXIT=0；2026-09-05）。其中新增 1 项为本机 Ollama 协议探针（默认跳过）；其余跳过主要为未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/` 或 `scripts/run_interview_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/interview_acceptance_report.json`。 |
+| 自动化测试 | **全量 pytest：416 passed, 35 skipped**（EXIT=0；2026-09-05）。其中新增 1 项为本机 Ollama 协议探针（默认跳过）；其余跳过主要为未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
 | 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 langgraph **同环境导入并运行真实调用链**（`test_crewai_real_call_chain_integration` 1 passed）；**真实权重模型未验证** |
 | 前端 | **容器内构建成功** | `docker build frontend` 成功（Next.js 14.2.5 `Ready`，`/` 返回 200）；本机 npm 受安全策略限制，故在容器内构建验证 |
@@ -116,9 +116,9 @@
 | 能力矩阵 / CrewAI 子智能体 | **代表性端点真实调用已验证；真实权重未验证** | `crewai==0.152.0` 独立环境 + 本地 OpenAI-compatible 端点已验证工具实际执行、审批前置和异常 fail-closed；代表性端点评测不可进入写白名单，真实权重评测待完成 |
 | **自托管 LLM 端点接入** | **本机真实权重候选协议不稳定；CrewAI 运行时/写能力未验收** | Ollama `qwen3:4b` 的 `tool_calls` 探针可偶发成功但未稳定复现（`scripts/verify_ollama_tool_call.py`）；CrewAI + Qwen 仍需专项适配，当前不进入写白名单 |
 
-**结论（面试作品版）**：主线保持 `售后请求 → LangGraph 路由 → CrewAI 工具调用 → 租户校验 → 敏感操作审批 → 沙箱执行 → 审计与幂等`。Graphiti/Milvus、真实渠道、多节点高可用和高并发均冻结；可宣称“代表性自托管端点上的真实 CrewAI 工具调用”，不可宣称“真实权重模型能力”或生产可用。
+**结论（项目定位）**：主线保持 `售后请求 → LangGraph 路由 → CrewAI 工具调用 → 租户校验 → 敏感操作审批 → 沙箱执行 → 审计与幂等`。Graphiti/Milvus、真实渠道、多节点高可用和高并发均冻结；可说明“代表性自托管端点上的真实 CrewAI 工具调用”，不可宣称“真实权重模型能力”或生产可用。
 
-**面试版冻结**：见 [`INTERVIEW_FREEZE.md`](INTERVIEW_FREEZE.md)。推荐先运行 CrewAI 专项测试，再运行 `scripts/live_e2e.py` 完成查询、退款审批、Shadow 执行和操作查询演示。
+**发布冻结**：见 [`PROJECT_FREEZE.md`](PROJECT_FREEZE.md)。推荐先运行 CrewAI 专项测试，再运行 `scripts/live_e2e.py` 完成查询、退款审批、Shadow 执行和操作查询演示。
 
 ---
 

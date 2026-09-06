@@ -3,7 +3,7 @@
 > 审查日期：2026-09-05  
 > 当前分支：`codex/prod-readiness`  
 > 历史生产候选锚点：`release/v1.0.0-rc5-candidate` → `8d44e80`
-> 当前面试交付锚点：`interview-freeze-2026-09-05` → `682ecdd`
+> 当前项目交付锚点：2026-09-05 冻结提交 `682ecdd`
 > 审查基线时工作树：`git status --porcelain` clean；本次发布收口优化会产生待提交文档变更
 
 ## 结论

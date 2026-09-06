@@ -1,10 +1,10 @@
-# 面试版冻结记录
+# 项目冻结记录
 
 冻结日期：2026-09-05
 
 ## 冻结目标
 
-本版本定位为个人开发者的低成本面试作品：单机、低并发、人工审批、Shadow、完全自托管。
+本版本定位为个人开发者的低成本项目原型：单机、低并发、人工审批、Shadow、完全自托管。
 
 ## 冻结主链路
 
@@ -28,12 +28,12 @@
 - 不宣称真实资金生产、不宣称真实租户上线
 - 不宣称高并发、多机高可用、Graphiti/Milvus 已落地
 
-## 面试演示命令
+## 验收与演示命令
 
 ```powershell
 $env:RUN_CREWAI_INTEGRATION='1'
 .accept-crewai-venv\Scripts\python.exe -m pytest -q tests/test_crewai_main_path.py tests/test_hardening_acceptance.py tests/test_llm_endpoint_gate.py
-.venv\Scripts\python.exe scripts/run_interview_acceptance.py
+.venv\Scripts\python.exe scripts/run_acceptance.py
 python scripts/live_e2e.py
 ```
 

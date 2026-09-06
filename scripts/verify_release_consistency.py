@@ -32,7 +32,7 @@ def fail(message: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tag", default="interview-freeze-2026-09-05")
+    parser.add_argument("--tag", default="release/v1.0.0-rc5-candidate")
     parser.add_argument("--expected-commit", default=None)
     args = parser.parse_args()
 

@@ -16,8 +16,8 @@
 > **rc2 锚定口径修正（✨ 定稿 · release-manager 2026-09-05 · 经队长 git 复测确认）**：
 > `release/v1.0.0-rc2` = annotated tag 对象 **`290b830`** → commit **`fa7c9a3`**（rc2 文档收口尖端）。**`bca4861` 为 rc2 谱系早期"阶段一 rc2 基线收口" commit（祖先），不是 rc2 tag/锚**，仅作历史留存。本文档及 `FINAL_ACCEPTANCE.md` 凡涉及 rc2 锚定的表述均以此为准；rc1 锚保留 `cd743d3` 不变。已同步修正 `PROJECT_STATUS.md`/`README.md`/`IMAGE_DIGESTS.json`/`BASELINE_LOCK.md`/`RELEASE_CHECKLIST.md`。基线链定稿：`7941246→3268a1c(可复现构建)→696444a→8ddca48→cd743d3(rc1)→cde30fb→59e37f2→bca4861(rc2 早期收口 commit, 祖先)→fa7c9a3(rc2 tag 目标)→阶段一 rc3 收口(3ccab5c=rc3 tag 目标==HEAD)`。
 
-> **面试冻结更新记录（release-manager · 2026-09-05）**：在保留 RC5 发布标签历史的基础上，当前面试冻结提交 `682ecdd` 已验证代表性自托管端点上的真实 CrewAI 工具调用；最新全量回归为 **414 passed / 0 failed / 34 skipped / EXIT=0**。**Go/No-Go 结论不变：当前仍 `NO-GO`**——真实权重模型、真实租户、受信 TLS、目标服务器、真实资金链路和 7 天观察仍为外部阻塞项。
-> **当前面试交付锚点**：`interview-freeze-2026-09-05` → `682ecdd`。该标签用于面试版代码、测试与说明文档复现；`release/v1.0.0-rc5-candidate` → `8d44e80` 继续作为历史生产候选锚点。
+> **项目冻结更新记录（release-manager · 2026-09-05）**：在保留 RC5 发布标签历史的基础上，当前冻结提交 `682ecdd` 已验证代表性自托管端点上的真实 CrewAI 工具调用；最新全量回归为 **414 passed / 0 failed / 34 skipped / EXIT=0**。**Go/No-Go 结论不变：当前仍 `NO-GO`**——真实权重模型、真实租户、受信 TLS、目标服务器、真实资金链路和 7 天观察仍为外部阻塞项。
+> **当前项目交付锚点**：2026-09-05 冻结提交 `682ecdd`。该提交用于复现对应版本的代码、测试与说明文档；`release/v1.0.0-rc5-candidate` → `8d44e80` 继续作为历史生产候选锚点。
 
 - 记录 ID：`GONOGO-PROD-20260904`
 - 定稿时间：2026-09-04（t6）
