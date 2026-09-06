@@ -50,6 +50,8 @@ def build_retriever(settings: Settings,
             collection=settings.milvus_collection,
             top_k=settings.retrieval_top_k,
             dim=settings.milvus_embedding_dim,
+            embedding_provider=settings.milvus_embedding_provider,
+            embedding_model_path=settings.milvus_embedding_model_path,
             source_docs=data_source.policy_documents(),
         )
     if backend == "keyword":

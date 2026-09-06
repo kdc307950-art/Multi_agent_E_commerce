@@ -117,12 +117,16 @@ class PostgresBusinessDataSource(BusinessDataSource):
         return [{**d, "score": s} for s, d in scored[:k]]
 
     def policy_documents(self) -> list[dict[str, Any]]:
-        """返回全部政策文档（含 tenant_id）。仅用于本地/测试检索组件预载/种子；生产走 search_policy。"""
-        with self._engine.begin() as conn:
-            rows = conn.execute(
-                text("SELECT tenant_id, doc_id, title, content FROM policy_documents")
-            ).mappings().all()
-        return [dict(r) for r in rows]
+        """拒绝无租户范围的全表预载。
+
+        PostgreSQL 生产数据源不能提供跨租户的“全部文档”列表。Milvus 预载若没有
+        已认证租户上下文会把多个租户的数据装入同一索引，违反数据面隔离；因此该
+        契约在 PostgreSQL 实现中显式 fail-closed。生产检索应走 ``search_policy``，
+        或由上层按单租户上下文构造独立索引。
+        """
+        raise DataSourceError(
+            "PostgreSQL policy_documents 需要租户范围；禁止无租户全表预载（fail-closed）"
+        )
 
 
 def _clean_query(value: str) -> str:

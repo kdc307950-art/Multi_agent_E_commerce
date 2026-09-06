@@ -21,7 +21,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from src.config import Settings
-from src.core.types import OperationStatus, Role
+from src.core.types import OperationStatus, PendingAction, Role
 from src.graph.builder import build_graph
 from src.infrastructure.store import MemoryStore
 from src.llm.mock import MockLLM
@@ -345,6 +345,43 @@ def test_crewai_tools_reject_missing_order_id():
     assert store.list_operations("TENANT-A") == []
 
 
+@pytest.mark.parametrize(("action", "params", "pending"), [
+    ("_do_process_return", {"order_id": "ORD-001", "reason": "质量问题"}, PendingAction.RETURN_REQUEST),
+    ("_do_update_return_address", {
+        "order_id": "ORD-001", "receiver_name": "张三", "phone": "13800138000",
+        "region": "广东省深圳市", "detail": "南山区科技园1号",
+    }, PendingAction.RETURN_ADDRESS),
+])
+def test_crewai_write_tools_create_pending_approval_without_execution(action, params, pending):
+    store = _eligible_store()
+    router = CrewAIToolRouter(enabled=False, adapter=build_adapter(Settings()), store=store,
+                              settings=Settings(), llm=MockLLM("gpt-4"))
+    ctx = {"tenant_id": "TENANT-A", "user_id": "USER-001", "role": "customer",
+           "thread_id": "th", "client_request_id": "req-1"}
+    result = getattr(router, action)(ctx, params)
+    assert result["status"] == "pending_approval"
+    assert store.get_operation("TENANT-A", result["operation_id"]).status.value == "pending"
+    assert store.get_approval("TENANT-A", result["approval_id"]).status.value == "pending"
+    # 审批前不得创建执行记录；Operation 本身没有 execution_count 字段。
+    assert store.list_execution_records("TENANT-A") == []
+
+
+def test_crewai_write_tool_idempotency_reuses_single_operation_and_approval():
+    store = _eligible_store()
+    router = CrewAIToolRouter(enabled=False, adapter=build_adapter(Settings()), store=store,
+                              settings=Settings(), llm=MockLLM("gpt-4"))
+    ctx = {"tenant_id": "TENANT-A", "user_id": "USER-001", "role": "customer",
+           "thread_id": "th", "client_request_id": "req-idem"}
+    params = {"order_id": "ORD-001", "reason": "质量问题"}
+    first = router._do_process_return(ctx, params)
+    second = router._do_process_return(ctx, params)
+    assert second["operation_id"] == first["operation_id"]
+    assert second["approval_id"] == first["approval_id"]
+    assert len(store.list_operations("TENANT-A")) == 1
+    assert len(store.list_approvals("TENANT-A")) == 1
+    assert store.list_execution_records("TENANT-A") == []
+
+
 def test_crewai_tool_ignores_model_supplied_identity_fields():
     """模型/参数哪怕传入 tenant_id/user_id/role 也会被忽略（以服务端 ctx 为准）。"""
     store = _eligible_store()
@@ -356,6 +393,18 @@ def test_crewai_tool_ignores_model_supplied_identity_fields():
                                        "user_id": "USER-B1", "role": "admin"})
     assert "TENANT-B" not in res
     assert "状态:delivered" in res
+
+
+def test_crewai_tool_rejects_model_rewritten_order_id():
+    """模型不得改写服务端已确认的订单定位字段。"""
+    store = _eligible_store()
+    router = CrewAIToolRouter(enabled=False, adapter=build_adapter(Settings()), store=store,
+                              settings=Settings(), llm=MockLLM("gpt-4"))
+    ctx = {"tenant_id": "TENANT-A", "user_id": "USER-001", "role": "customer",
+           "order_id": "ORD-001", "thread_id": "th"}
+    with pytest.raises(AdapterError) as exc:
+        router._do_query_order(ctx, {"order_id": "ORD-123456789"})
+    assert exc.value.code == "order_id_mismatch"
 
 
 # ---------------------------------------------------------------------------

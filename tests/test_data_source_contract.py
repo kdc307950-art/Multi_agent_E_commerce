@@ -254,6 +254,15 @@ def test_ds_requires_database_url_fails_closed():
         PostgresBusinessDataSource("")
 
 
+def test_postgres_policy_documents_rejects_unscoped_full_table_preload():
+    """生产 PostgreSQL 数据源不得在缺少租户上下文时返回全表政策。"""
+    from sqlalchemy import create_engine
+
+    ds = PostgresBusinessDataSource("postgresql://unused", engine=create_engine("sqlite:///:memory:"))
+    with pytest.raises(DataSourceError, match="需要租户范围"):
+        ds.policy_documents()
+
+
 # 以下为真实 PostgreSQL/RLS 集成测试；无 DATABASE_URL 时由 pg_engine fixture 整组 skip。
 def _seed_pg_business(engine) -> None:
     from sqlalchemy import text

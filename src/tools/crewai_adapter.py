@@ -155,13 +155,12 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
 
 
 # 每个意图绑定的工具子集（第二阶梯：子智能体分域 + 静态绑定；每个子智能体只绑 2-3 个）。
-# 未定义写工具的意图（如退货/改址）fail-closed 绑定 escalate_ticket（只允许转人工）。
 _INTENT_TOOLS: dict[str, list[str]] = {
     "order": ["query_order"],
     "shipping": ["query_order"],
     "refund": ["process_refund", "query_order"],
-    "return_request": ["escalate_ticket"],
-    "return_address": ["escalate_ticket"],
+    "return_request": ["process_return", "query_order"],
+    "return_address": ["update_return_address", "query_order"],
     "complaint": ["escalate_ticket"],
 }
 
@@ -172,6 +171,23 @@ def _require_ctx(ctx: dict, key: str) -> str:
     if value is None or value == "":
         raise AdapterError("missing_tenant_context", f"缺少服务端上下文 {key}，拒绝执行")
     return value
+
+
+def _validated_order_id(ctx: dict, params: dict) -> str:
+    """只接受服务端已确认的订单号，拒绝模型改写或注入其他定位值。"""
+    context_order_id = ctx.get("order_id")
+    supplied_order_id = params.get("order_id")
+    if supplied_order_id is not None:
+        if not isinstance(supplied_order_id, str) or not re.fullmatch(r"ORD-\d+", supplied_order_id):
+            raise AdapterError("invalid_order_id", "订单号格式非法，转人工")
+        if context_order_id and supplied_order_id != context_order_id:
+            raise AdapterError("order_id_mismatch", "模型提供的订单号与服务端上下文不一致，转人工")
+    order_id = supplied_order_id or context_order_id
+    if not order_id:
+        raise AdapterError("missing_order_id", "缺少订单号")
+    if not isinstance(order_id, str) or not re.fullmatch(r"ORD-\d+", order_id):
+        raise AdapterError("invalid_order_id", "订单号格式非法，转人工")
+    return order_id
 
 
 class MockCrewAIBackend:
@@ -244,9 +260,7 @@ class CrewAIToolRouter:
         tenant_id = _require_ctx(ctx, "tenant_id")
         user_id = _require_ctx(ctx, "user_id")
         role = ctx.get("role") or "customer"
-        order_id = params.get("order_id") or ctx.get("order_id")
-        if not order_id:
-            raise AdapterError("missing_order_id", "缺少订单号")
+        order_id = _validated_order_id(ctx, params)
         order = self.adapter.get_order(tenant_id, user_id, role, order_id)
         items = ", ".join(f'{i["name"]}(x{i["quantity"]})' for i in order.items)
         return f'状态:{order.status} 金额:{order.total_amount} 商品:{items}'
@@ -258,9 +272,7 @@ class CrewAIToolRouter:
         tenant_id = _require_ctx(ctx, "tenant_id")
         user_id = _require_ctx(ctx, "user_id")
         role = ctx.get("role") or "customer"
-        order_id = params.get("order_id") or ctx.get("order_id")
-        if not order_id:
-            raise AdapterError("missing_order_id", "缺少订单号")
+        order_id = _validated_order_id(ctx, params)
         if self.store is None:
             # 无存储无法创建审批操作 → fail-closed 转人工。
             raise AdapterError("missing_store", "无存储，无法创建审批操作；转人工")
@@ -276,9 +288,9 @@ class CrewAIToolRouter:
         idem_key = generate_operation_key(PendingAction.REFUND, tenant_id, order_id, client_request_id)
         op = self.store.create_operation(tenant_id, thread_id, order_id, PendingAction.REFUND,
                                          idem_key, now)
-        approval = self.store.create_approval(tenant_id, thread_id, op.operation_id,
-                                              PendingAction.REFUND, order_id, elig.amount,
-                                              reason, now)
+        approval = self._get_or_create_approval(
+            tenant_id, thread_id, op.operation_id, PendingAction.REFUND,
+            order_id, elig.amount, reason, now)
         # 只创建待审批操作；审批通过后由 execute_* 执行（本模块绝不执行）。
         return {
             "status": "pending_approval",
@@ -287,6 +299,73 @@ class CrewAIToolRouter:
             "refund_amount": elig.amount,
             "message": f"退款申请已创建（金额 {elig.amount}），需人工审批后执行。",
         }
+
+    def _do_process_return(self, ctx: dict, params: dict) -> dict:
+        """退货：资格判定后只创建待审批 operation/approval。"""
+        if not self._write_capability_ok():
+            raise AdapterError("model_not_in_whitelist", "写操作模型不在能力矩阵白名单，转人工")
+        tenant_id = _require_ctx(ctx, "tenant_id")
+        user_id = _require_ctx(ctx, "user_id")
+        role = ctx.get("role") or "customer"
+        order_id = _validated_order_id(ctx, params)
+        if self.store is None:
+            raise AdapterError("missing_store", "无存储，无法创建审批操作；转人工")
+        elig = self.adapter.check_return_eligibility(tenant_id, user_id, role, order_id)
+        if not elig.eligible:
+            raise AdapterError("return_ineligible", elig.detail or "退货资格不明，转人工")
+        now = time.time()
+        client_request_id = (params.get("client_request_id") or ctx.get("client_request_id")
+                             or str(int(now * 1000)))
+        idem_key = generate_operation_key(PendingAction.RETURN_REQUEST, tenant_id, order_id,
+                                           client_request_id)
+        thread_id = ctx.get("thread_id") or ""
+        op = self.store.create_operation(tenant_id, thread_id, order_id,
+                                         PendingAction.RETURN_REQUEST, idem_key, now)
+        reason = params.get("reason") or "申请退货"
+        approval = self._get_or_create_approval(
+            tenant_id, thread_id, op.operation_id, PendingAction.RETURN_REQUEST,
+            order_id, None, reason, now)
+        result = {"status": "pending_approval", "operation_id": op.operation_id,
+                  "approval_id": approval.approval_id, "message": "退货申请已创建，需人工审批后执行。"}
+        return result
+
+    def _do_update_return_address(self, ctx: dict, params: dict) -> dict:
+        """改址：校验地址后只创建待审批 operation/approval。"""
+        if not self._write_capability_ok():
+            raise AdapterError("model_not_in_whitelist", "写操作模型不在能力矩阵白名单，转人工")
+        tenant_id = _require_ctx(ctx, "tenant_id")
+        user_id = _require_ctx(ctx, "user_id")
+        role = ctx.get("role") or "customer"
+        order_id = _validated_order_id(ctx, params)
+        if self.store is None:
+            raise AdapterError("missing_store", "无存储，无法创建审批操作；转人工")
+        address_keys = ("receiver_name", "phone", "region", "detail")
+        address = {k: params.get(k) for k in address_keys if params.get(k) is not None}
+        normalized = self.adapter.validate_address_change(tenant_id, user_id, role, order_id, address)
+        now = time.time()
+        client_request_id = (params.get("client_request_id") or ctx.get("client_request_id")
+                             or str(int(now * 1000)))
+        idem_key = generate_operation_key(PendingAction.RETURN_ADDRESS, tenant_id, order_id,
+                                           client_request_id)
+        thread_id = ctx.get("thread_id") or ""
+        op = self.store.create_operation(tenant_id, thread_id, order_id,
+                                         PendingAction.RETURN_ADDRESS, idem_key, now)
+        reason = f"变更退货地址至 {normalized['region']} {normalized['detail']}"
+        approval = self._get_or_create_approval(
+            tenant_id, thread_id, op.operation_id, PendingAction.RETURN_ADDRESS,
+            order_id, None, reason, now)
+        return {"status": "pending_approval", "operation_id": op.operation_id,
+                "approval_id": approval.approval_id, "message": "退货地址变更已创建，需人工审批后执行。"}
+
+    def _get_or_create_approval(self, tenant_id: str, thread_id: str, operation_id: str,
+                                action: PendingAction, order_id: str, amount: Optional[float],
+                                reason: str, now: float):
+        """审批幂等：同一 operation 只允许一张审批单，兼容各存储后端。"""
+        for approval in self.store.list_approvals(tenant_id):
+            if approval.operation_id == operation_id:
+                return approval
+        return self.store.create_approval(tenant_id, thread_id, operation_id, action,
+                                           order_id, amount, reason, now)
 
     @staticmethod
     def _do_escalate_ticket(ctx: dict, params: dict) -> str:
@@ -315,6 +394,24 @@ class CrewAIToolRouter:
 
         return crewai_tool(process_refund)
 
+    def _make_process_return_tool(self, crewai_tool, ctx: dict):
+        def process_return(order_id: str, reason: str = "") -> str:
+            result = self._do_process_return(ctx, {"order_id": order_id, "reason": reason})
+            self._last_write_meta = dict(result)
+            return json.dumps(result, ensure_ascii=False)
+        return crewai_tool(process_return)
+
+    def _make_update_return_address_tool(self, crewai_tool, ctx: dict):
+        def update_return_address(order_id: str, receiver_name: str = "", phone: str = "",
+                                  region: str = "", detail: str = "") -> str:
+            result = self._do_update_return_address(ctx, {
+                "order_id": order_id, "receiver_name": receiver_name, "phone": phone,
+                "region": region, "detail": detail,
+            })
+            self._last_write_meta = dict(result)
+            return json.dumps(result, ensure_ascii=False)
+        return crewai_tool(update_return_address)
+
     def _make_escalate_ticket_tool(self, crewai_tool, ctx: dict):
         def escalate_ticket(reason: str = "") -> str:
             """转人工/升级（无法自动处理或客户升级投诉时）。参数：reason（升级/转人工理由）。"""
@@ -339,6 +436,10 @@ class CrewAIToolRouter:
                 tools.append(self._make_query_order_tool(crewai_tool, ctx))
             elif name == "process_refund":
                 tools.append(self._make_process_refund_tool(crewai_tool, ctx))
+            elif name == "process_return":
+                tools.append(self._make_process_return_tool(crewai_tool, ctx))
+            elif name == "update_return_address":
+                tools.append(self._make_update_return_address_tool(crewai_tool, ctx))
             elif name == "escalate_ticket":
                 tools.append(self._make_escalate_ticket_tool(crewai_tool, ctx))
             else:
@@ -382,6 +483,30 @@ class CrewAIToolRouter:
             def call(self, messages, tools=None, callbacks=None,
                      available_functions=None, from_task=None, from_agent=None):
                 native_tools = getattr(self, "_native_tools", [])
+                if native_tools and tools and not getattr(self, "_native_attempted", False):
+                    # 显式把工具 schema 传给 CrewAI，避免其默认 ReAct 路径自行猜格式。
+                    self._native_attempted = True
+                    previous_choice = self.additional_params.pop("tool_choice", None)
+                    self.additional_params["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": self._native_tool_name},
+                    }
+                    try:
+                        try:
+                            result = super().call(
+                                messages, tools=tools, callbacks=callbacks,
+                                available_functions=available_functions,
+                                from_task=from_task, from_agent=from_agent,
+                            )
+                        except Exception:
+                            result = self._direct_native_call(messages)
+                        if not getattr(self, "_native_executed", False):
+                            result = self._direct_native_call(messages)
+                        return result
+                    finally:
+                        self.additional_params.pop("tool_choice", None)
+                        if previous_choice is not None:
+                            self.additional_params["tool_choice"] = previous_choice
                 if (native_tools and getattr(self, "_native_attempted", False)
                         and not getattr(self, "_native_executed", False) and not tools):
                     # CrewAI may retry after a malformed/text response. Do not let
@@ -671,6 +796,7 @@ class CrewAIToolRouter:
                 direct_prompt = self._task_description(intent, tool_name, params)
                 direct_result = crew_llm.call(
                     [{"role": "user", "content": direct_prompt}],
+                    tools=native_tools,
                     available_functions=native_functions,
                 )
                 if not getattr(crew_llm, "_native_executed", False):

@@ -192,7 +192,11 @@ class Settings(BaseSettings):
     milvus_uri: str = "./data/milvus_local.db"
     milvus_db_name: str = "after_sales"
     milvus_collection: str = "policy"
-    milvus_embedding_dim: int = 128   # 自托管确定性 hash 向量维度（无外部 embedding 模型）
+    # hash 保持默认零依赖行为；local_sentence_transformer 仅接受本地模型目录，
+    # 缺依赖、模型目录或维度不匹配时必须 fail-closed，不静默退回 hash。
+    milvus_embedding_provider: str = "hash"  # hash | local_sentence_transformer
+    milvus_embedding_model_path: str = ""   # 本地 SentenceTransformer 模型目录
+    milvus_embedding_dim: int = 128          # hash=128；bge-small-zh-v1.5=512
 
     # --- 业务规则 / 资格校验 ---
     # 退款/退货资格窗口（自签收/发货起的天数；超过则资格不明转人工）

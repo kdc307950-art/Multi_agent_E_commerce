@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-09-05T16:45:00.041044+00:00",
+  "generated_at": "2026-09-06T19:13:35.183044+00:00",
   "command": "D:\\software\\PythonProject1\\PythonProject\\Multi_agent_E_commerce\\.venv\\Scripts\\python.exe -m pytest -q",
   "exit_code": 0,
   "pytest": {
     "failed": 0,
     "errors": 0,
-    "passed": 416,
+    "passed": 429,
     "skipped": 35
   },
   "evidence_boundaries": {
