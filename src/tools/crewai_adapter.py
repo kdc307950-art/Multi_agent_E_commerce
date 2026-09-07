@@ -396,6 +396,9 @@ class CrewAIToolRouter:
 
     def _make_process_return_tool(self, crewai_tool, ctx: dict):
         def process_return(order_id: str, reason: str = "") -> str:
+            """退货资格判定并触发人工审批（写操作，只创建待审批记录，绝不直接退货）。
+            参数：order_id（ORD-数字格式）、reason（退货理由）。
+            """
             result = self._do_process_return(ctx, {"order_id": order_id, "reason": reason})
             self._last_write_meta = dict(result)
             return json.dumps(result, ensure_ascii=False)
@@ -404,6 +407,9 @@ class CrewAIToolRouter:
     def _make_update_return_address_tool(self, crewai_tool, ctx: dict):
         def update_return_address(order_id: str, receiver_name: str = "", phone: str = "",
                                   region: str = "", detail: str = "") -> str:
+            """变更退货地址并触发人工审批（写操作，只创建待审批记录，绝不直接改址）。
+            参数：order_id、receiver_name、phone、region、detail。
+            """
             result = self._do_update_return_address(ctx, {
                 "order_id": order_id, "receiver_name": receiver_name, "phone": phone,
                 "region": region, "detail": detail,
@@ -592,6 +598,10 @@ class CrewAIToolRouter:
                     compact = f"查询订单 {order_id}，只调用 query_order 工具。"
                 elif self._native_tool_name == "process_refund" and order_id:
                     compact = f"申请订单 {order_id} 退款，只调用 process_refund 工具。"
+                elif self._native_tool_name == "process_return" and order_id:
+                    compact = f"申请订单 {order_id} 退货，只调用 process_return 工具。"
+                elif self._native_tool_name == "update_return_address" and order_id:
+                    compact = f"修改订单 {order_id} 的退货地址，只调用 update_return_address 工具。"
                 else:
                     compact = f"{text}\n只调用 {self._native_tool_name} 工具。"
                 payload = {
@@ -690,6 +700,26 @@ class CrewAIToolRouter:
         order_id = params.get("order_id")
         if isinstance(order_id, str) and re.fullmatch(r"ORD-\d+", order_id):
             description += f"服务端已确认本次订单号为「{order_id}」，调用工具时必须使用该订单号。"
+        # 写工具只把已校验的业务字段以短文本带入提示词，绝不带入身份字段。
+        # 限长并去除换行，避免把任意用户文本拼接成新的指令。
+        if tool_name in {"process_refund", "process_return"}:
+            reason = params.get("reason")
+            if isinstance(reason, str):
+                reason = re.sub(r"[\r\n]+", " ", reason).strip()[:120]
+                if reason:
+                    description += f"申请理由为「{reason}」，作为 reason 参数传入。"
+        elif tool_name == "update_return_address":
+            fields = ("receiver_name", "phone", "region", "detail")
+            safe_fields = {}
+            for field in fields:
+                value = params.get(field)
+                if isinstance(value, str):
+                    value = re.sub(r"[\r\n]+", " ", value).strip()[:80]
+                    if value:
+                        safe_fields[field] = value
+            if safe_fields:
+                rendered = "，".join(f"{k}={v}" for k, v in safe_fields.items())
+                description += f"已校验的新地址字段为「{rendered}」，按字段原样调用。"
         description += "只调用已授权工具，不得编造订单或金额数据；若无法确定则转人工。"
         return description
 

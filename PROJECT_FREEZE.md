@@ -13,18 +13,18 @@
 ## 已验证
 
 - 代表性端点上的 CrewAI 工具绑定与安全链路（测试环境）
-- Ollama `qwen3:8b` 原生 `tool_calls` 探针 3/3 通过；真实 CrewAI `query_order` 查询工具连续 3/3 实际执行通过（仅覆盖只读链路）
+- Ollama `qwen3:8b` 原生 `tool_calls` 与真实 CrewAI 三条敏感写工具探针均通过 3/3：退款、退货、改址均先创建 pending operation/approval，审批前执行数为 0，审批后 Shadow 执行一次，重复 `client_request_id` 不重复创建 operation
 - 退款创建 operation/approval，审批前保持 pending
 - 审批后才进入 Shadow 执行
 - 重复请求幂等、跨租户拒绝、模型身份字段隔离
 - 端点异常、非法工具结果和非白名单模型 fail-closed 转人工
 - CrewAI/安全专项回归：以当前环境实际运行结果为准；跳过项不计入通过
-- 全量回归：`429 passed, 35 skipped`，EXIT=0（本机 `.venv` 实测，2026-09-07）
+- 全量回归：`432 passed, 35 skipped`，EXIT=0（本机 `.venv` 实测，2026-09-07）
 
 ## 明确不宣称
 
-- CrewAI + Qwen 仅对只读 `query_order` 查询完成本次 3/3 复测；适配器仍阻断 ReAct 文本伪调用，并要求恰好一个受限 tool_call、禁止额外参数，端点 503/超时等异常继续 fail-closed
-- qwen3:8b 不进入 `HIGH_CONFIDENCE_MODELS`，不证明退款、退货或改址写操作可靠性
+- 真实 Qwen 写探针证明的是本机端点到 CrewAI 工具与审批/幂等安全边界的闭环，不是生产可靠性或资金渠道证明；LangGraph `Command(resume=...)` 写路径由专项自动化测试验证，但该图级测试使用 Mock 路由，不冒充 Qwen 图级实测
+- qwen3:8b 不进入 `HIGH_CONFIDENCE_MODELS`；生产写白名单仍要求独立 `write_op_pass=true` 评测报告
 - 不宣称真实资金生产、不宣称真实租户上线
 - 不宣称高并发、多机高可用、Graphiti/Neo4j 已落地；Milvus 仍为可选实验后端
 

@@ -7,7 +7,7 @@
 
 ## 一、一句结论
 
-系统定位为**受控运行级、单租户、低并发、人工审批、Shadow 的自托管原型**。当前仍为 RC5 生产候选、正式生产放量 `NO-GO`；Ollama `qwen3:8b` 原生工具调用 3/3 通过，真实 CrewAI `query_order` 查询工具执行 3/3 通过，但仅覆盖只读查询，写能力仍未验收。
+系统定位为**受控运行级、单租户、低并发、人工审批、Shadow 的自托管原型**。当前仍为 RC5 生产候选、正式生产放量 `NO-GO`；本机 Ollama `qwen3:8b` 已完成三条真实 CrewAI 敏感写工具探针 3/3：退款、退货、改址均创建待审批 operation/approval，审批前执行数为 0，审批后 Shadow 执行一次，重复 `client_request_id` 只复用一个 operation。该证据不等于生产写模型批准，qwen3:8b 仍不进入写白名单。
 
 ## 二、发布基线与一致性
 
@@ -23,7 +23,7 @@
 
 | 边界 | 定义 | 关键验证项 |
 |:---:|------|-----------|
-| **边界1 单元测试** | `pytest tests/`（内存/SQLite） | 当前全量实测 **429 passed, 35 skipped**（EXIT=0；本机 `.venv`，2026-09-07）；专项 CrewAI/Milvus/Memory **29 passed, 1 skipped**。跳过项不计入通过。 |
+| **边界1 单元测试** | `pytest tests/`（内存/SQLite） | 当前全量实测 **432 passed, 35 skipped**（EXIT=0；本机 `.venv`，2026-09-07）；专项 CrewAI 图级测试 **24 passed, 1 skipped**。跳过项不计入通过。 |
 | **边界2 Mock/沙箱** | preview mock LLM、`sandbox_gateway`、沙箱并发 | N=256 沙箱并发 submit=1/FAIL 收敛 compensated；RpoExceeded 告警真实运行态闭环（合成钻取源）；能力矩阵/写门控 |
 | **边界3 PostgreSQL/RLS 实测** | 真实 PG 数据面 | RLS 动态 B1–B5 全拦；真实 PG 并发 N=256；DR 加密恢复 RTO=0.643s/RPO≤900s 上界；全新库 clean migrate exit 0。★取证多为 preview+一次性独立测试库（非 `after-sales-prod` 专栈实机，生产栈数据面复验＝部署期执行项） |
 | **边界4 真实生产外部依赖** | 真实资产/生产实机 | **全部 BLOCKED-需外部**：受信 CA/域名、真实权重模型端点、真实资金渠道、书面确认真实租户、7 天观察 |
@@ -34,7 +34,7 @@
 |---|---|---|
 | `mock` | 单元测试/回归；不可进入写白名单 | `MockLLM` 与 `self_hosted_server.py` 代表性端点 |
 | `representative_self_hosted` | 协议、SSE、异常和安全链路演示 | 本地 OpenAI-compatible 端点；非真实权重 |
-| `real_weight_candidate` | 真实权重端点评测后，候选查询/工具调用 | qwen3:8b 原生协议 3/3；真实 CrewAI `query_order` 工具执行 3/3；仅只读查询证据，仍不进入写白名单 |
+| `real_weight_candidate` | 真实权重端点评测后，候选查询/工具调用 | qwen3:8b 原生协议与真实 CrewAI 三条写工具探针均为 3/3；写路径证据仍属本机演示探针，未满足生产白名单评测 |
 | `production_approved` | 正式生产放量 | 当前不适用 |
 
 ## 四、已验证（GO 的能力基础 ✅）
@@ -48,7 +48,7 @@
 | G10 / A9 受信 TLS | 现有证书自签（CN=preview.local），无受信 CA 链 | deploy-engineer | 真实域名 + 受信 CA fullchain + `nginx -t` + `openssl s_client`(`:8843`) 复核 |
 | G13 / A1 真实租户书面确认 | `LAUNCH_ALLOWED_TENANTS=__NONE_APPROVED_YET__`、`AUTH_LOGIN_CREDENTIALS={}`，无确认函 | release-manager / 业务方 | 业务方签署确认函 + PHC 注入 + 白名单/凭据 + 成员/角色授予 + 审计 |
 | G14 / A11 7 天观察 | 当前未切 live，观察期未开始 | observability-engineer | 切 live 后 ≥7 天连续观测 + 每日恢复演练 + 告警无红线 |
-| G5 / A10 真实权重模型评测 | 代表性自托管端点上的 CrewAI 调用已验证；当前端点仍非真实权重模型，不能作为生产写模型证明 | acceptance-engineer | 真实自托管权重端点 + `write_op_pass=true` 报告 → `HIGH_CONFIDENCE_MODELS` 显式列出 |
+| G5 / A10 真实权重模型评测 | qwen3:8b 本机真实 CrewAI 三条写工具探针已通过，但尚未形成生产级写操作评测报告；不能据此进入生产写白名单 | acceptance-engineer | 真实自托管权重端点 + `write_op_pass=true` 报告 → `HIGH_CONFIDENCE_MODELS` 显式列出 |
 | G6 / A5 真实资金链路 | 生产网关沙箱未部署（preview `EXECUTION_PROVIDER=mock`）；沙箱链路代码/测试级 ✅ PASS | deploy-engineer + acceptance-engineer | 部署内网 `sandbox_gateway` + `EXECUTION_PROVIDER=sandbox_http` + 端到端复跑 + shadow-only 提交 |
 
 ## 六、部署期执行项（非边界4外部因，但未本机闭环 ⚠️）
@@ -62,7 +62,7 @@
 
 - ✅ **已提交收口**：阶段一 rc3 发布基线收口提交已纳入（测试默认写临时目录 + 真实 390/34 口径 + uv.lock 不入库），**基线提交时刻工作区 clean**（以 `release/v1.0.0-rc3` 为锚）。**当前 working tree 因团队证据编辑非 clean**。
 - ✅ 重定稿 `GO_NO_GO.md` / `FINAL_ACCEPTANCE.md`，统一四证据边界，消除"已完成/未接入"矛盾（修正 rc1→cd743d3、A8/G9 生产栈健康已证实、迁移版本 4 点表述；**rc3 以基线尖端为锚** 口径）。
-- ✅ 统一 `README.md` 生产候选版口径；历史 RC4/RC5 数字保留为历史记录，当前工作树全量回归为 **429 passed / 35 skipped**（EXIT=0；`.venv` 实测，2026-09-07）。
+- ✅ 统一 `README.md` 生产候选版口径；历史 RC4/RC5 数字保留为历史记录，当前工作树全量回归数字须以本次复跑结果为准；跳过项不计入通过。
 - ✅ 新增 `scripts/run_acceptance.py`，可生成 `evidence/acceptance_report.json`；报告只记录实际 pytest 结果，不把 skipped 或真实外部依赖缺失升级为通过。
 - ✅ `release/v1.0.0-rc3` 标签（→ 基线尖端）；镜像 digest、迁移版本（4 点）与 tag 一致。
 - ✅ 所有未验证项均有明确责任人 + 解锁条件（见 §五）。

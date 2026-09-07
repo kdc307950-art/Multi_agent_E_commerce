@@ -92,11 +92,16 @@ class _StubRouter:
         self.calls.append({"intent": intent, "ctx": dict(ctx), "params": dict(params or {})})
         if self.raise_on_call is not None:
             raise self.raise_on_call
-        if intent == "refund":
+        write_method = {
+            "refund": "_do_process_refund",
+            "return_request": "_do_process_return",
+            "return_address": "_do_update_return_address",
+        }.get(intent)
+        if write_method:
             # 复用真实业务逻辑：资格判定 + 创建待审批 operation/approval（绝不执行）。
             real = CrewAIToolRouter(enabled=False, adapter=self.adapter, store=self.store,
                                     settings=Settings(), llm=MockLLM("gpt-4"))
-            return real._do_process_refund(ctx, dict(params or {}))
+            return getattr(real, write_method)(ctx, dict(params or {}))
         return {"tool": self.resolve_tool(intent), "intent": intent, "crew_result": "stub-ok"}
 
 
@@ -173,6 +178,47 @@ def test_crewai_enabled_refund_executes_only_after_approval(monkeypatch):
     assert out2.get("operation_id") == oid
     assert s.get_operation("TENANT-A", oid).status.value == "executed"
     assert out2.get("intent") == "refund"
+
+
+@pytest.mark.parametrize(("message", "expected_intent", "expected_action"), [
+    ("我要退款，订单号 ORD-001", "refund", PendingAction.REFUND.value),
+    ("我要退货，订单号 ORD-001，商品质量问题", "return_request", PendingAction.RETURN_REQUEST.value),
+    ("我要改退货地址，订单号 ORD-001，"
+     '{"receiver_name":"张三","phone":"13800138000",'
+     '"region":"广东省深圳市南山区","detail":"科技园1号"}',
+     "return_address", PendingAction.RETURN_ADDRESS.value),
+])
+def test_crewai_write_paths_resume_only_after_human_approval(
+        monkeypatch, message, expected_intent, expected_action):
+    """图级证据：三条 CrewAI 写路径均须 interrupt，Command 恢复后才 Shadow 执行一次。"""
+    store = _eligible_store()
+    holder = _stub_build_crewai_router(monkeypatch, store, build_adapter(Settings()))
+    graph = build_graph(MockLLM("gpt-4"), store, InMemorySaver(),
+                        settings=Settings(crewai_enabled=True))
+    cfg = {"configurable": {"thread_id": f"crew-{expected_action}"}}
+
+    pending = graph.invoke({
+        "messages": [{"role": "user", "content": message}],
+        "tenant_id": "TENANT-A", "user_id": "USER-001", "role": "customer",
+        "thread_id": f"crew-{expected_action}", "client_request_id": f"request-{expected_action}",
+        "model": "gpt-4",
+    }, config=cfg)
+
+    assert holder["router"].calls[0]["intent"] == expected_intent
+    assert pending["tool"] == CrewAIToolRouter.resolve_tool(expected_intent)
+    assert pending["pending_action"] == expected_action
+    operation_id = pending["operation_id"]
+    assert store.get_operation("TENANT-A", operation_id).status is OperationStatus.PENDING
+    assert store.list_execution_records("TENANT-A") == []
+
+    completed = graph.invoke(
+        Command(resume={"approved": True, "approver": "ADMIN-A"}), config=cfg,
+    )
+    assert completed["operation_id"] == operation_id
+    assert store.get_operation("TENANT-A", operation_id).status is OperationStatus.EXECUTED
+    records = store.list_execution_records("TENANT-A")
+    assert len(records) == 1
+    assert records[0].pending_action.value == expected_action
 
 
 # ---------------------------------------------------------------------------

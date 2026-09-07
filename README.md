@@ -1,7 +1,7 @@
 # 电商售后多智能体工单系统 — 项目索引页（README · 生产候选版）
 
 > **项目**：电商售后多智能体工单系统（E-commerce After-Sales Multi-Agent Ticket System）
-> **一句话定位**：基于 **LangGraph 主控 + CrewAI 子智能体 + 人工审批** 的售后工单系统原型。当前为**单租户、低并发、Shadow、完全自托管的 RC5 生产候选**；正式生产放量仍为 `NO-GO`。已验证 PostgreSQL/RLS、审批、幂等、沙箱和异常 fail-closed；本机 `qwen3:8b` 原生 `tool_calls` 与真实 CrewAI `query_order` 查询工具均已完成 3/3 复测。该证据只覆盖只读查询，写操作继续 fail-closed。
+> **一句话定位**：基于 **LangGraph 主控 + CrewAI 子智能体 + 人工审批** 的售后工单系统原型。当前为**单租户、低并发、Shadow、完全自托管的 RC5 生产候选**；正式生产放量仍为 `NO-GO`。已验证 PostgreSQL/RLS、审批、幂等、沙箱和异常 fail-closed；本机 `qwen3:8b` 已完成退款、退货、改址三条真实 CrewAI 写工具探针 3/3。该证据证明本地工具/审批/幂等闭环，不等于生产写模型批准，qwen3:8b 仍不进入写白名单。
 > **用途**：本目录为项目的**完整交付包**，支持作业提交、技术评审和部署。本文档为入口/索引。
 
 > **文档归档说明（2026-09-05）**：原始长篇设计文档已移至桌面目录 `Multi_agent_E_commerce_原始项目文档_20260905`，仓库保留 README、项目状态、冻结记录、验收证据和可执行脚本作为项目交付面。
@@ -104,9 +104,9 @@
 |---|---|---|
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
-| 自动化测试 | **全量 pytest：429 passed, 35 skipped**（EXIT=0；本机 `.venv` 实测，2026-09-07）。跳过项不计入通过，主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
+| 自动化测试 | **全量 pytest：432 passed, 35 skipped**（EXIT=0；本机 `.venv` 实测，2026-09-07）。跳过项不计入通过，主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
-| 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 langgraph **同环境导入并运行真实调用链**（`test_crewai_real_call_chain_integration` 1 passed）；**真实权重模型未验证** |
+| 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 LangGraph 同环境运行；本机真实权重 `qwen3:8b` 的 CrewAI 三条写工具探针已通过，但生产级模型评测仍未完成 |
 | 前端 | **容器内构建成功** | `docker build frontend` 成功（Next.js 14.2.5 `Ready`，`/` 返回 200）；本机 npm 受安全策略限制，故在容器内构建验证 |
 | Docker Compose（preview） | **本机实机验证** | 已 `docker compose up` 启动 postgres:17-alpine/redis:7-alpine/api/frontend/worker 并验证：postgres `SELECT version` 通过、redis `PONG`、api `:8000` openapi 200 + 退款触发 `approval_required`、frontend `:3000` 200 |
 | **独立生产栈 `after-sales-prod`** | **容器级健康已实测/已证实（边界3 专栈实机；一次 bring-up 观测，T7，非当前运行态）** | `PROD_STACK_HEALTH.md`（T7）：compose `migrate` exit 0 + api/worker/frontend/nginx/postgres/redis 全 **healthy**，nginx `8080`/`8843` 暴露，api `/api/healthz`(8843)=200、frontend `/`=200、`/api/metrics`(公网)=404（内网化正确阻断）；受信 TLS 就绪前不可对外暴露 8080/8843 |
@@ -114,10 +114,10 @@
 | 发布基线 | **RC5 候选** | `release/v1.0.0-rc5-candidate` → `8d44e80`；当前工作树有后续未提交修改，形成新候选前需重新绑定 commit、证据和测试数字 |
 | 长期记忆（Graphiti/Neo4j） | **未接入** | 属后续阶段，依赖其版本/许可/自托管验证，不承诺（设计态） |
 | 可选长期记忆原型（SQLite） | **边界1 已验证** | `src/memory/` 提供租户隔离、validity window、as_of 回溯和 retire；默认不接入主链路 |
-| 能力矩阵 / CrewAI 子智能体 | **代表性端点真实调用已验证；真实权重未验证** | `crewai==0.152.0` 独立环境 + 本地 OpenAI-compatible 端点已验证工具实际执行、审批前置和异常 fail-closed；代表性端点评测不可进入写白名单，真实权重评测待完成 |
-| **自托管 LLM 端点接入** | **Qwen3 8B 原生协议与 CrewAI 只读查询通过；写能力未验收** | Ollama `qwen3:8b` 原生 `tool_calls` 3/3；真实 CrewAI `query_order` 工具执行 3/3；当前不进入写白名单（详见 `evidence/prod-go-live/test-runner/OLLAMA_QWEN8B_RETRY_20260907.md`） |
+| 能力矩阵 / CrewAI 子智能体 | **真实本机权重工具闭环已验证；生产写白名单未批准** | `crewai==0.152.0` 独立环境 + 本机 Qwen3:8B 已验证工具实际执行、审批前置和异常 fail-closed；探针使用显式测试隔离覆盖，`evidence/llm_candidate_eval.json` 仍为 `whitelist_eligible: false`，生产评测待完成 |
+| **自托管 LLM 端点接入** | **Qwen3 8B + CrewAI 三条写工具探针通过；生产白名单未批准** | 退款、退货、改址真实 CrewAI 探针 3/3；每条均审批前 0 执行、审批后 Shadow 1 次、重复请求幂等；LangGraph 图级审批测试为 Mock 路由证据；当前不进入写白名单 |
 
-**结论（项目定位）**：主线保持 `售后请求 → LangGraph 路由 → CrewAI 工具调用 → 租户校验 → 敏感操作审批 → 沙箱执行 → 审计与幂等`。Graphiti/Milvus、真实渠道、多节点高可用和高并发均冻结；可说明“代表性自托管端点上的真实 CrewAI 工具调用”，不可宣称“真实权重模型能力”或生产可用。
+**结论（项目定位）**：主线保持 `售后请求 → LangGraph 路由 → CrewAI 工具调用 → 租户校验 → 敏感操作审批 → 沙箱执行 → 审计与幂等`。Graphiti/Milvus、真实渠道、多节点高可用和高并发均冻结；可说明“本机 Qwen3:8B 上真实 CrewAI 三条写工具探针通过”，不可宣称生产资金可用或已获写模型白名单批准。
 
 **发布冻结**：见 [`PROJECT_FREEZE.md`](PROJECT_FREEZE.md)。推荐先运行 CrewAI 专项测试，再运行 `scripts/live_e2e.py` 完成查询、退款审批、Shadow 执行和操作查询演示。
 

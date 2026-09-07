@@ -19,12 +19,15 @@ from src.core.types import ApprovalStatus
 from src.graph.approval import make_approval_node
 from src.graph.nodes import make_nodes
 from src.graph.rag import make_rag_graph
-from src.graph.state import AgentState
+from src.graph.state import AgentState, last_message_text
+from src.llm.base import LLMError
 from src.tools import EcommerceAdapter, build_crewai_router
 
-# 绑定到 CrewAI 真实工具子集的意图（order/refund/complaint）。这些意图在 crewai_enabled 时
+# 绑定到 CrewAI 真实工具子集的意图（查询、退款、退货、改址、投诉）。这些意图在 crewai_enabled 时
 # 进入 crewai_refund_agent；其余意图完全走既有确定性节点（不改变现状）。
-CREWAI_BOUND_INTENTS: frozenset[str] = frozenset({"order", "refund", "complaint"})
+CREWAI_BOUND_INTENTS: frozenset[str] = frozenset({
+    "order", "refund", "return_request", "return_address", "complaint",
+})
 
 # 敏感写意图 -> 审批动作（PendingAction）。写操作经 crewai 后仍必须唯一进入 human_approval，
 # 绝不引入 direct -> execute 绕过边。
@@ -80,10 +83,11 @@ def build_graph(llm, store, checkpointer, retriever=None, adapter=None, conf_thr
 
     - settings：可选；提供 crewai_enabled / 自托管 LLM 配置 / 网络白名单。缺省（None）时
       crewai_enabled=False，主路径与既有确定性行为完全一致。
-    - crewai_enabled=True 且意图绑定到 crewai 工具（order/refund/complaint）时，
+    - crewai_enabled=True 且意图绑定到 crewai 工具（查询/退款/退货/改址/投诉）时，
       route_by_intent 进入 crewai_refund_agent（构造 build_crewai_router 并调用
       run_business_task）；否则完全走现有确定性节点（不改变现状）。
-    - 写意图（refund）经 crewai 后仍必须经唯一 human_approval；绝不 direct -> execute。
+    - 写意图（refund/return_request/return_address）经 crewai 后仍必须经唯一
+      human_approval；绝不 direct -> execute。
     """
     crewai_enabled = bool(settings is not None and getattr(settings, "crewai_enabled", False))
     effective_adapter = adapter or EcommerceAdapter()
@@ -137,7 +141,26 @@ def build_graph(llm, store, checkpointer, retriever=None, adapter=None, conf_thr
             "thread_id": state.get("thread_id"),
             "client_request_id": state.get("client_request_id") or str(int(time.time() * 1000)),
         }
+        # 写工具的业务参数由统一抽取契约提供，再由工具层做归属、资格和严格字段校验。
+        # 不能只传 order_id：改址所需字段若丢失，模型会被迫臆造或走到不完整调用。
+        # 身份字段始终只来自 ctx，绝不从模型/客户端参数回填。
         params = {"order_id": state.get("order_id")}
+        action = CREWAI_WRITE_INTENTS.get(intent)
+        if action:
+            try:
+                extracted = llm.extract_tool_params(action, last_message_text(state["messages"]))
+            except LLMError as exc:
+                return _fail_closed(state, "tool_param_extraction_failed",
+                                    f"CrewAI 写操作参数提取失败：{exc}")
+            if not isinstance(extracted, dict):
+                return _fail_closed(state, "tool_param_extraction_failed",
+                                    "CrewAI 写操作参数不是对象")
+            # 工具层会忽略身份字段；此处仍显式移除，防止其进入任务描述或模型可见上下文。
+            params.update({
+                key: value for key, value in extracted.items()
+                if key not in {"tenant_id", "user_id", "role"}
+            })
+            params["order_id"] = state.get("order_id")
         try:
             result = router.run_business_task(intent, ctx, params)
         except Exception as exc:
@@ -148,7 +171,6 @@ def build_graph(llm, store, checkpointer, retriever=None, adapter=None, conf_thr
         crew_result = result.get("crew_result") or result.get("message") or ""
         out = {"tool": tool, "intent": intent, "crew_result": crew_result,
                "reason": None, "falls_to_error": False}
-        action = CREWAI_WRITE_INTENTS.get(intent)
         if action:
             approval_id = result.get("approval_id")
             operation_id = result.get("operation_id")

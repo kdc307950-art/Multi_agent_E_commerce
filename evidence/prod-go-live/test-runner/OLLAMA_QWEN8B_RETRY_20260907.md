@@ -56,13 +56,41 @@ $env:PYTHONUTF8='1'
 结果：
 
 ```text
-19 passed in 4.88s
+25 passed in 13.63s
 ```
+
+### 4. 真实 CrewAI 敏感写工具探针
+
+执行：
+
+```powershell
+$env:OLLAMA_MODEL='qwen3:8b'
+$env:OLLAMA_BASE_URL='http://127.0.0.1:11434/v1'
+$env:PYTHONUTF8='1'
+$env:LLM_DISABLE_THINKING='true'
+$env:ALLOW_TEST_WRITE_PROBE='1'
+.\.accept-crewai-venv\Scripts\python.exe scripts\probe_crewai_write_paths.py
+```
+
+结果：
+
+```text
+write_paths: 3/3
+approval_bypass: 0
+duplicate_execution: 0
+refund: pre_approval_execution_count=0, post_approval_execution_count=1, status_after_approval=executed
+return_request: pre_approval_execution_count=0, post_approval_execution_count=1, status_after_approval=executed
+return_address: pre_approval_execution_count=0, post_approval_execution_count=1, status_after_approval=executed
+```
+
+探针按 `operation_id` 而非全局记录数计数，因此每条路径均明确满足“审批前 0、审批后 1”。重复相同 `client_request_id` 只复用原 `operation_id`，不新增 operation 或 execution。
+探针必须显式设置 `ALLOW_TEST_WRITE_PROBE=1` 才会在**该独立进程**内注入测试用能力覆盖；它不会修改部署配置、`HIGH_CONFIDENCE_MODELS` 生产配置或 `evidence/llm_candidate_eval.json`。
 
 ## 判定与边界
 
 - 本地 Qwen3 8B 原生 `tool_calls`：通过。
 - 真实 CrewAI `query_order` 工具调用：本次 3/3 实际执行通过。
 - `qwen3:8b` 仍不加入 `HIGH_CONFIDENCE_MODELS`，`evidence/llm_candidate_eval.json` 继续保持 `whitelist_eligible: false`。
-- 该复测只覆盖只读查询，不证明退款、退货或改址写操作能力，也不改变人工审批、Shadow、幂等和 fail-closed 约束。
+- 真实 CrewAI 写探针已覆盖退款、退货、改址各 1 次完整闭环；LangGraph 图级 `Command(resume=...)` 专项测试另行证明审批状态机，但使用 Mock 路由，不冒充 Qwen 图级实测。
+- 该复测不证明真实资金渠道、生产可靠性或生产写白名单资格，也不改变人工审批、Shadow、幂等和 fail-closed 约束。
 - 运行期间曾出现 Windows 控制台 GBK EventBus 编码提示；不影响工具执行。演示和证据应以工具调用记录、真实工具返回值和测试结果为准。

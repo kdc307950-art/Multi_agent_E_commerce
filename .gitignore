@@ -43,6 +43,7 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+.idea/
 
 # Agent / harness 会话与临时产物（非源码，不入库）
 .agent-teams/
