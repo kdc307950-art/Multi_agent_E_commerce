@@ -71,7 +71,7 @@
 |---|---|---|
 | 编排 | LangGraph 主控 + CrewAI 子智能体 | 状态机 + 角色化协作 |
 | **检查点/会话** | 开发 `SqliteSaver` · 生产 **`TenantScopedCheckpointer + AsyncPostgresSaver`** | 会话归属和 checkpoint 的 invoke、恢复、历史、清理、审批续跑均校验租户作用域（见④/⑧） |
-| 知识/RAG | Agentic RAG（自纠正 + 幻觉检测） | 政策问答；Milvus Lite + 本地 BGE 已完成真实本机验收，默认仍使用 keyword 以保持零依赖；证据见 `evidence/MILVUS_BGE_LOCAL_ACCEPTANCE.md` |
+| 知识/RAG | Agentic RAG（自纠正 + 幻觉检测） | 政策问答；Milvus Lite + 本地 BGE 已完成真实本机验收，并已联通 Agentic RAG 子图；默认仍使用 keyword 以保持零依赖；证据见 `evidence/MILVUS_BGE_LOCAL_ACCEPTANCE.md`、`evidence/MILVUS_RAG_INTEGRATION.md` |
 | **长期记忆** | 设计目标为 Graphiti + Neo4j；当前提供**可选 SQLite 时序事实存储原型** | 客观事实、validity window、来源溯源；Graphiti/Neo4j 运行链路仍未接入 |
 | **工具调用** | 工具契约按 **MCP 设计原则**组织；当前运行时用 **CrewAI/OpenAI-compatible tool calling**（MCP 协议接入为后续阶段） | 业务 7 + 平台 2，共 9 个工具能力 |
 | **生产架构** | **React + Next.js + FastAPI 网关 + 前后端分离 + 多副本数据面** | 本地 Compose、租赁服务器预发布、生产 HA 分层演进 |

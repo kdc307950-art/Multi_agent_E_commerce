@@ -1,0 +1,27 @@
+{
+  "embedding_dim": 512,
+  "backend": "milvus_lite",
+  "results": {
+    "TENANT-A": {
+      "doc_ids": [
+        "a-1"
+      ],
+      "rag_answer": "租户A支持七天退货，商品需保持完好。",
+      "hallucination_check": {
+        "faithful": true,
+        "issues": []
+      }
+    },
+    "TENANT-B": {
+      "doc_ids": [
+        "b-1"
+      ],
+      "rag_answer": "租户B支持三十天退货，商品需保持完好。",
+      "hallucination_check": {
+        "faithful": true,
+        "issues": []
+      }
+    }
+  },
+  "tenant_scope_verified": true
+}
