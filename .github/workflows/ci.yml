@@ -87,3 +87,28 @@ jobs:
           pip install pymilvus==3.0.1 milvus-lite==3.2.1
       - name: Run Milvus Lite isolation tests
         run: python -m pytest -q tests/test_milvus_lite_integration.py tests/test_milvus_embedding_provider.py
+
+  dependency-security:
+    name: Dependency security checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+      - name: Install audit tooling and locked Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-lock.txt
+          pip install pip-audit
+      - name: Audit locked Python dependencies
+        run: pip-audit -r requirements-lock.txt
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Audit locked frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high

@@ -17,6 +17,8 @@ Milvus Lite 与本地 `BAAI/bge-small-zh-v1.5` 已完成本机真实验收：512
 
 GitHub Actions 已增加 `Milvus Lite tenant isolation` 任务，验证本地向量库依赖、同/跨租户过滤和重复初始化；CI 不下载大型 BGE 权重，真实 BGE 维度与语义召回证据仍以本机离线验收报告为准。
 
+CI 同时包含锁定 Python 依赖的 `pip-audit` 和前端 `npm audit --audit-level=high` 供应链检查；扫描失败阻断流水线，不把“依赖已安装”当作“无已知漏洞”。
+
 ## 二、发布基线与一致性
 
 | 项 | 值 |
