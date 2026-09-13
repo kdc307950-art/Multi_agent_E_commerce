@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint . --max-warnings=0"
   },
   "dependencies": {
     "@ant-design/icons": "5.4.0",
@@ -26,6 +26,8 @@
   "devDependencies": {
     "@types/node": "20.14.0",
     "@types/react": "18.3.3",
+    "eslint": "8.57.1",
+    "eslint-config-next": "15.5.25",
     "playwright-core": "^1.62.1",
     "typescript": "5.5.4"
   },
