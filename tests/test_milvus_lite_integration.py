@@ -26,6 +26,10 @@ def test_real_milvus_lite_is_tenant_scoped_and_restart_safe(tmp_path: Path):
         assert all(row["tenant_id"] == "TENANT-A" for row in first.search("TENANT-A", "退货"))
         assert all(row["tenant_id"] == "TENANT-B" for row in first.search("TENANT-B", "退货"))
         assert first.search("", "退货") == []
+        first.delete_documents("TENANT-A", ["a-1"])
+        assert first.search("TENANT-A", "退货") == []
+        with pytest.raises(Exception):
+            first.delete_documents("", ["b-1"])
     finally:
         if hasattr(first._client, "close"):
             first._client.close()

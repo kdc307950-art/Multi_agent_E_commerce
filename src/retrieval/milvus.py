@@ -194,6 +194,25 @@ class MilvusRetriever(Retriever):
             else:
                 self._client.insert(collection_name=self._collection, data=rows)
 
+    def upsert_documents(self, tenant_id: str, docs: list[dict]) -> None:
+        """按租户更新知识文档；禁止借此写入其它租户数据。"""
+        if not tenant_id or any(d.get("tenant_id") != tenant_id for d in docs):
+            raise RetrievalError("Milvus 文档更新缺少或越过租户作用域")
+        self._seed(docs)
+
+    def delete_documents(self, tenant_id: str, doc_ids: list[str]) -> None:
+        """按租户删除知识文档；删除条件同时包含 tenant_id 和 doc_id。"""
+        if not tenant_id or not doc_ids:
+            raise RetrievalError("Milvus 文档删除缺少租户或文档标识")
+        escaped = ", ".join(json.dumps(str(doc_id), ensure_ascii=False) for doc_id in doc_ids)
+        try:
+            self._client.delete(
+                collection_name=self._collection,
+                filter=f'tenant_id == {json.dumps(tenant_id, ensure_ascii=False)} and doc_id in [{escaped}]',
+            )
+        except Exception as exc:
+            raise RetrievalError("Milvus 文档删除失败") from exc
+
     def search(self, tenant_id: str, query: str, top_k: int | None = None) -> list[dict]:
         if not tenant_id:
             return []
