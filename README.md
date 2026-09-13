@@ -105,7 +105,7 @@
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
 | 自动化测试 | **当前本机全量 pytest：438 passed, 36 skipped**（EXIT=0；本机 `.venv`，2026-09-13）。Milvus Lite 专项 **7 passed**；跳过项不计入通过，主要因外部服务/专项开关未全部启用。独立 PostgreSQL 专项结果单独标注，不与默认口径混用。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite/PostgreSQL、Milvus Lite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
-| 依赖安全 | Python 本机 `pip-audit --local` 无已知漏洞；锁定文件审计与前端 `npm audit` 由 GitHub Actions 在 Ubuntu/默认 registry 执行 | Windows 本机 `-r` 审计受 `uvloop` 构建限制，当前 npm 镜像的 audit API 返回 404，均不冒充通过 |
+| 依赖安全 | Python 本机 `pip-audit --local` 无已知漏洞；前端 `next@15.5.25` / `postcss@8.5.28` 经官方 registry `npm audit --audit-level=high` 返回 0 vulnerabilities，并通过生产构建 | 锁定文件审计仍由 GitHub Actions Ubuntu 权威执行；Windows 本机 `-r` 审计受 `uvloop` 构建限制 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
 | 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 LangGraph 同环境运行；本机真实权重 `qwen3:8b` 的 CrewAI 三条写工具探针已通过，但生产级模型评测仍未完成 |
 | 前端 | **本机构建与浏览器 E2E 通过** | `npm run build` 通过；Playwright 使用系统 Chrome 完成客户发起退款、审批人二次确认、审批后 Shadow 状态回推的前后端联调；桌面和 390px 移动截图已人工检查。 |

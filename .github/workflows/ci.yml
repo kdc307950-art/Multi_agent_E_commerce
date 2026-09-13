@@ -111,4 +111,4 @@ jobs:
         run: npm ci
       - name: Audit locked frontend dependencies
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: npm_config_registry=https://registry.npmjs.org npm audit --audit-level=high
