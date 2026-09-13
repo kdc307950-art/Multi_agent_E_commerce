@@ -33,7 +33,7 @@ CI 同时包含锁定 Python 依赖的 `pip-audit` 和前端 `npm audit --audit-
 
 | 边界 | 定义 | 关键验证项 |
 |:---:|------|-----------|
-| **边界1/3 自动化回归** | `pytest tests/`（内存/SQLite + 独立 PostgreSQL） | 当前全量实测 **470 passed, 2 skipped**（EXIT=0；本机 `.venv`，独立干净 PostgreSQL 实例，2026-09-13）。2 项跳过分别为未设置 `RUN_OLLAMA_PROBE=1`、未设置 `RUN_CREWAI_INTEGRATION=1`；跳过项不计入通过。 |
+| **边界1 自动化回归** | `pytest tests/`（当前本机默认环境） | 当前全量实测 **438 passed, 36 skipped**（EXIT=0；本机 `.venv`，2026-09-13）。跳过项主要为未配置外部服务/专项环境，均不计入通过。独立 PostgreSQL 专项结果单独记录，不与本机默认口径混用。 |
 | **边界2 Mock/沙箱** | preview mock LLM、`sandbox_gateway`、沙箱并发 | N=256 沙箱并发 submit=1/FAIL 收敛 compensated；RpoExceeded 告警真实运行态闭环（合成钻取源）；能力矩阵/写门控 |
 | **边界3 PostgreSQL/RLS 实测** | 真实 PG 数据面 | RLS 动态 B1–B5 全拦；真实 PG 并发 N=256；DR 加密恢复 RTO=0.643s/RPO≤900s 上界；全新库 clean migrate exit 0。★取证多为 preview+一次性独立测试库（非 `after-sales-prod` 专栈实机，生产栈数据面复验＝部署期执行项） |
 | **边界4 真实生产外部依赖** | 真实资产/生产实机 | **全部 BLOCKED-需外部**：受信 CA/域名、真实权重模型端点、真实资金渠道、书面确认真实租户、7 天观察 |

@@ -104,7 +104,7 @@
 |---|---|---|
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
-| 自动化测试 | **全量 pytest：470 passed, 2 skipped**（EXIT=0；本机 `.venv`，连接独立干净 PostgreSQL 实例，2026-09-13）。Milvus Lite 专项真实集成测试已通过；跳过项不计入通过：本轮未启用本机 Ollama 探针和真实 CrewAI + 自托管 LLM 集成开关。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite/PostgreSQL、Milvus Lite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
+| 自动化测试 | **当前本机全量 pytest：438 passed, 36 skipped**（EXIT=0；本机 `.venv`，2026-09-13）。Milvus Lite 专项 **7 passed**；跳过项不计入通过，主要因外部服务/专项开关未全部启用。独立 PostgreSQL 专项结果单独标注，不与默认口径混用。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite/PostgreSQL、Milvus Lite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
 | 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 LangGraph 同环境运行；本机真实权重 `qwen3:8b` 的 CrewAI 三条写工具探针已通过，但生产级模型评测仍未完成 |
 | 前端 | **本机构建与浏览器 E2E 通过** | `npm run build` 通过；Playwright 使用系统 Chrome 完成客户发起退款、审批人二次确认、审批后 Shadow 状态回推的前后端联调；桌面和 390px 移动截图已人工检查。 |
