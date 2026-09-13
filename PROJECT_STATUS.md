@@ -17,6 +17,8 @@ Milvus Lite 与本地 `BAAI/bge-small-zh-v1.5` 已完成本机真实验收：512
 
 GitHub Actions 已增加 `Milvus Lite tenant isolation` 任务，验证本地向量库依赖、同/跨租户过滤和重复初始化；CI 不下载大型 BGE 权重，真实 BGE 维度与语义召回证据仍以本机离线验收报告为准。
 
+最近一次远程 CI（commit `003b577`，run `34767537072`）已完成并通过全部四个任务：Python 回归、PostgreSQL/RLS、Milvus Lite 租户隔离、依赖安全。
+
 CI 同时包含锁定 Python 依赖的 `pip-audit` 和前端 `npm audit --audit-level=high` 供应链检查；扫描失败阻断流水线，不把“依赖已安装”当作“无已知漏洞”。
 
 依赖安全复核（2026-09-13）：本机 Windows 虚拟环境执行 `pip-audit --local` 返回 **No known vulnerabilities found**。直接使用 `pip-audit -r requirements-lock.txt` 会因依赖解析阶段尝试构建 Windows 不支持的 `uvloop` 而中止，该结果不是漏洞结论；锁定文件审计以 Ubuntu GitHub Actions 为权威。前端已升级至 `next@15.5.25`、`postcss@8.5.28`，使用官方 npm registry 执行 `npm audit --audit-level=high` 返回 **found 0 vulnerabilities**，并通过生产构建。
