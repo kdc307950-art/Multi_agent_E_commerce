@@ -19,6 +19,8 @@ GitHub Actions 已增加 `Milvus Lite tenant isolation` 任务，验证本地向
 
 CI 同时包含锁定 Python 依赖的 `pip-audit` 和前端 `npm audit --audit-level=high` 供应链检查；扫描失败阻断流水线，不把“依赖已安装”当作“无已知漏洞”。
 
+依赖安全复核（2026-09-13）：本机 Windows 虚拟环境执行 `pip-audit --local` 返回 **No known vulnerabilities found**。直接使用 `pip-audit -r requirements-lock.txt` 会因依赖解析阶段尝试构建 Windows 不支持的 `uvloop` 而中止，该结果不是漏洞结论；锁定文件审计以 Ubuntu GitHub Actions 为权威。前端 `npm audit --audit-level=high` 在当前 `npmmirror.com` 源返回 404（安全审计接口未实现），因此本机前端审计仍标记为未验证，CI 使用默认 npm registry 复核。
+
 ## 二、发布基线与一致性
 
 | 项 | 值 |
