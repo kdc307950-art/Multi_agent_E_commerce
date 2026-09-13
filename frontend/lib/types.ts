@@ -28,6 +28,29 @@ export interface SseFrame {
   data: Record<string, unknown>;
 }
 
+export type LifecycleStage =
+  | "route_started"
+  | "crewai_started"
+  | "tool_selected"
+  | "tool_validated"
+  | "approval_required"
+  | "shadow_started"
+  | "shadow_completed"
+  | "human_handoff";
+
+export interface LifecycleEvent {
+  stage: LifecycleStage;
+  status?: string;
+  name?: string;
+  trace_id?: string;
+  timestamp?: number;
+  duration_ms?: number;
+  tool?: string;
+  reason?: string;
+  operation_id?: string;
+  approval_id?: string;
+}
+
 export interface SessionRead {
   thread_id: string;
   title: string | null;

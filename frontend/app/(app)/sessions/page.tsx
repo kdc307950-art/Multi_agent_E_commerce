@@ -31,13 +31,13 @@ export default function SessionsPage() {
   if (!user) return null;
 
   return (
-    <Row gutter={16} style={{ minHeight: "calc(100vh - 80px)" }}>
-      <Col span={8}>
+    <Row gutter={[16, 16]} className="workspace-row" style={{ minHeight: "calc(100vh - 80px)" }}>
+      <Col xs={24} md={8} className="workspace-col">
         <Card styles={{ body: { height: "100%" } }}>
           <SessionListPanel token={user.token} activeThreadId={threadId} onSelect={setThreadId} />
         </Card>
       </Col>
-      <Col span={16}>
+      <Col xs={24} md={16} className="workspace-col">
         <Card title={`会话消息 ${threadId ? `(${threadId.slice(0, 8)}…)` : ""}`} loading={loading} style={{ height: "100%" }}>
           {!threadId ? (
             <Typography.Text type="secondary">选择会话查看消息历史。</Typography.Text>

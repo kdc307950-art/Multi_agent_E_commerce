@@ -79,7 +79,6 @@ export default function ApprovalsPage() {
       const op = await getOperation(user.token, approval.operation_id);
       setOperation(op);
       setSelected(approval);
-      message.success(`操作状态：${op.status}`);
     } catch (e) {
       message.error(e instanceof Error ? e.message : String(e));
     }
@@ -121,8 +120,8 @@ export default function ApprovalsPage() {
   if (!user) return null;
 
   return (
-    <Row gutter={16}>
-      <Col span={10}>
+    <Row gutter={[16, 16]} className="workspace-row">
+      <Col xs={24} md={10} className="workspace-col">
         <Card
           title="审批中心"
           extra={
@@ -164,7 +163,7 @@ export default function ApprovalsPage() {
         </Card>
       </Col>
 
-      <Col span={14}>
+      <Col xs={24} md={14} className="workspace-col">
         <Card title="审批详情">
           <Divider style={{ margin: "8px 0" }} />
           {selected ? (
@@ -211,7 +210,7 @@ export default function ApprovalsPage() {
             <Typography.Text type="secondary" style={{ fontSize: 13 }}>（点击列表项查询）</Typography.Text>
           )}
 
-          {canDecide && selected && (
+          {canDecide && selected && selected.status === "pending" && (
             <div style={{ marginTop: 16 }}>
               <Space>
                 <Button type="primary" onClick={() => { setFeedback(""); setConfirming({ approval: selected, approved: true }); }}>

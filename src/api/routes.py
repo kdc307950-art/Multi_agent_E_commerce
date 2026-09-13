@@ -3,13 +3,14 @@
 冻结接口（见《生产基线与验收测试》§3.1 / 《生产环境架构设计》§3.5）：
 - POST /api/auth/login（签发真实 JWT；仅 real 后端且已配置 AUTH_LOGIN_CREDENTIALS，否则 fail-closed）
 - POST /api/sessions、GET /api/sessions、GET /api/sessions/{thread_id}、GET /api/sessions/{thread_id}/messages
-- POST /api/chat（SSE）
+- POST /api/chat（SSE）、GET /api/traces/{trace_id}、GET /api/traces/{trace_id}/events
 - GET /api/approvals、GET /api/approvals/{approval_id}、POST /api/approvals/{approval_id}/decision
 - GET /api/operations/{operation_id}
 人工升级由后端领域服务创建并通过上述资源呈现，不暴露第二个 /escalate 公共入口。
 """
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import os
@@ -38,6 +39,8 @@ from src.api.schemas import (
     OrderRead,
     SessionMessagesResponse,
     SessionRead,
+    TraceEventRead,
+    TraceRead,
 )
 from src.auth.security import (
     _redact_detail,
@@ -60,6 +63,7 @@ from src.core.types import (
 from src.observability.logging import get_logger
 from src.observability.metrics import get_metrics
 from src.observability.tracing import trace_span
+from src.service.chat import format_sse_frame
 
 router = APIRouter()
 
@@ -211,6 +215,86 @@ def _check_visible(store, ctx, thread_id: str) -> None:
         raise DomainError(ErrorCode.NOT_FOUND, "资源不可用或无权限", 404)
 
 
+_SAFE_TRACE_STAGES = {
+    "route_started", "crewai_started", "tool_selected", "tool_validated",
+    "approval_required", "shadow_started", "shadow_completed", "human_handoff",
+}
+
+
+def _trace_stream(store, ctx, trace_id: str) -> dict:
+    """按服务端租户上下文解析轨迹，并复用 stream/session 所有权校验。"""
+    try:
+        stream = store.get_stream_by_trace(ctx.tenant_id, trace_id)
+    except DomainError:
+        audit_security_denial(store, ctx.tenant_id, ctx.user_id, "trace_access_denied",
+                              "trace", trace_id)
+        raise
+    validate_stream_owner(store, ctx, stream["stream_id"])
+    return stream
+
+
+def _safe_trace_event(raw: dict, ctx) -> TraceEventRead | None:
+    """将持久化事件收敛为安全白名单；customer 不暴露内部节点和工具名。"""
+    data = raw.get("data") or {}
+    stage = data.get("lifecycle")
+    if raw.get("event") == "approval_required":
+        stage = "approval_required"
+    if stage not in _SAFE_TRACE_STAGES:
+        return None
+    staff = _staff_role(ctx)
+    return TraceEventRead(
+        seq=int(raw["seq"]),
+        stage=stage,
+        status=str(data["status"]) if data.get("status") is not None else None,
+        timestamp=float(data["timestamp"]) if isinstance(data.get("timestamp"), (int, float)) else None,
+        duration_ms=int(data["duration_ms"]) if isinstance(data.get("duration_ms"), (int, float)) else None,
+        name=str(data["name"]) if staff and data.get("name") else None,
+        tool=str(data["tool"]) if staff and data.get("tool") else None,
+        operation_id=str(data["operation_id"]) if data.get("operation_id") else None,
+        approval_id=str(data["approval_id"]) if data.get("approval_id") else None,
+    )
+
+
+def _trace_status(raw_events: list[dict], safe_events: list[TraceEventRead]) -> str:
+    if any(e.stage == "human_handoff" for e in safe_events):
+        return "transferred_to_human"
+    completed = next((e for e in reversed(safe_events) if e.stage == "shadow_completed"), None)
+    if completed is not None:
+        return "completed" if completed.status == "passed" else "failed"
+    approval = next((e for e in reversed(safe_events) if e.stage == "approval_required"), None)
+    if approval is not None:
+        return "rejected" if approval.status == "rejected" else "waiting_approval"
+    if any(e.get("event") == "error" for e in raw_events):
+        return "failed"
+    if any(e.get("event") == "done" for e in raw_events):
+        return "completed"
+    return "running"
+
+
+def _append_trace_lifecycle(store, tenant_id: str, operation_id: str, stage: str,
+                            status: str, approval_id: str, *, duration_ms: int | None = None) -> None:
+    """把审批后生命周期写回创建该 operation 的原始 trace；找不到绑定时保持业务执行不受影响。"""
+    try:
+        stream_id = store.find_stream_by_operation(tenant_id, operation_id)
+        if not stream_id:
+            return
+        stream = store.get_stream(tenant_id, stream_id)
+        data = {
+            "lifecycle": stage,
+            "trace_id": stream.get("trace_id"),
+            "timestamp": _now(),
+            "status": status,
+            "operation_id": operation_id,
+            "approval_id": approval_id,
+        }
+        if duration_ms is not None:
+            data["duration_ms"] = duration_ms
+        store.append_event(tenant_id, stream_id, "node", data, _now())
+    except Exception:
+        # 轨迹属于非关键观测面；写入失败不能绕过审批，也不能阻断权威业务状态收口。
+        _security_log.exception("trace_lifecycle_append_failed", extra={"stage": stage})
+
+
 def _message_to_dict(msg) -> dict:
     """把 LangChain 消息对象/字典统一序列化为 {role, content}，供前端展示会话历史。"""
     if isinstance(msg, dict):
@@ -360,6 +444,59 @@ async def chat(request: ChatRequest, ctx=Depends(get_tenant_context),
     )
 
 
+# ---- 安全执行轨迹（只读，不恢复图、不调用工具）----
+@router.get("/traces/{trace_id}", response_model=TraceRead)
+async def get_trace(trace_id: str, ctx=Depends(get_tenant_context), store=Depends(get_store)):
+    stream = _trace_stream(store, ctx, trace_id)
+    raw_events = store.events_after(ctx.tenant_id, stream["stream_id"], 0)
+    events = [event for raw in raw_events if (event := _safe_trace_event(raw, ctx)) is not None]
+    return TraceRead(
+        trace_id=trace_id,
+        thread_id=stream["thread_id"],
+        status=_trace_status(raw_events, events),
+        last_seq=int(stream["last_seq"]),
+        operation_id=stream.get("operation_id"),
+        approval_id=stream.get("approval_id"),
+        events=events,
+    )
+
+
+@router.get("/traces/{trace_id}/events")
+async def subscribe_trace(trace_id: str, after_seq: int = 0, wait_seconds: float = 20.0,
+                          ctx=Depends(get_tenant_context), store=Depends(get_store)):
+    """租户隔离的只读 SSE 订阅；只轮询持久化安全事件，绝不触发 graph resume。"""
+    if after_seq < 0:
+        raise HTTPException(status_code=422, detail="after_seq must be non-negative")
+    stream = _trace_stream(store, ctx, trace_id)
+    wait_seconds = min(max(wait_seconds, 0.0), 25.0)
+
+    async def event_source():
+        cursor = after_seq
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            raw_events = store.events_after(ctx.tenant_id, stream["stream_id"], cursor)
+            terminal = False
+            for raw in raw_events:
+                cursor = max(cursor, int(raw["seq"]))
+                event = _safe_trace_event(raw, ctx)
+                if event is None:
+                    continue
+                payload = event.model_dump(exclude_none=True)
+                payload["trace_id"] = trace_id
+                yield format_sse_frame(event.seq, "node", payload)
+                terminal = event.stage in {"shadow_completed", "human_handoff"} or (
+                    event.stage == "approval_required" and event.status == "rejected"
+                )
+            if terminal or time.monotonic() >= deadline:
+                return
+            await asyncio.sleep(0.25)
+
+    return StreamingResponse(
+        event_source(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ---- 审批 ----
 @router.get("/approvals", response_model=list[ApprovalRead])
 async def list_approvals(ctx=Depends(get_tenant_context), store=Depends(get_store)):
@@ -479,23 +616,47 @@ async def decide_approval(approval_id: str, request: ApprovalDecisionRequest,
 
     config = {"configurable": {"thread_id": approval.thread_id}}
     op = None
-    async with _checkpoint_scope(store, ctx, approval.thread_id, "approval_resume"):
-        # 自托管观测：审批恢复+执行包在 Langfuse span（metadata 带 tenant/session，
-        # 输入输出经脱敏）。未配置 Langfuse 时 no-op，绝不阻塞审批主链路。
-        with trace_span("approval.decide", tenant_id=ctx.tenant_id,
-                        session_id=approval.thread_id, user_id=ctx.user_id,
-                        input={"approved": request.approved, "approver": ctx.user_id,
-                               "feedback": request.feedback,
-                               "operation_id": approval.operation_id,
-                               "pending_action": approval.pending_action.value},
-                        output=lambda: {"operation_id": approval.operation_id,
-                                        "status": op.status.value} if op else None):
-            await runner.graph.ainvoke(
-                Command(resume={"approved": request.approved, "feedback": request.feedback,
-                                "approver": ctx.user_id}),
-                config=config,
-            )
-            op = store.get_operation(ctx.tenant_id, approval.operation_id)
+    shadow_started_at = _now()
+    if request.approved:
+        _append_trace_lifecycle(store, ctx.tenant_id, approval.operation_id,
+                                "shadow_started", "running", approval_id)
+    try:
+        async with _checkpoint_scope(store, ctx, approval.thread_id, "approval_resume"):
+            # 自托管观测：审批恢复+执行包在 Langfuse span（metadata 带 tenant/session，
+            # 输入输出经脱敏）。未配置 Langfuse 时 no-op，绝不阻塞审批主链路。
+            with trace_span("approval.decide", tenant_id=ctx.tenant_id,
+                            session_id=approval.thread_id, user_id=ctx.user_id,
+                            input={"approved": request.approved, "approver": ctx.user_id,
+                                   "feedback": request.feedback,
+                                   "operation_id": approval.operation_id,
+                                   "pending_action": approval.pending_action.value},
+                            output=lambda: {"operation_id": approval.operation_id,
+                                            "status": op.status.value} if op else None):
+                await runner.graph.ainvoke(
+                    Command(resume={"approved": request.approved, "feedback": request.feedback,
+                                    "approver": ctx.user_id}),
+                    config=config,
+                )
+                op = store.get_operation(ctx.tenant_id, approval.operation_id)
+    except Exception:
+        if request.approved:
+            _append_trace_lifecycle(store, ctx.tenant_id, approval.operation_id,
+                                    "human_handoff", "transferred_to_human", approval_id)
+        raise
+
+    if request.approved:
+        completed_status = "passed" if op.status.value == "executed" else "failed"
+        _append_trace_lifecycle(
+            store, ctx.tenant_id, approval.operation_id, "shadow_completed",
+            completed_status, approval_id,
+            duration_ms=max(0, round((_now() - shadow_started_at) * 1000)),
+        )
+        if completed_status == "failed":
+            _append_trace_lifecycle(store, ctx.tenant_id, approval.operation_id,
+                                    "human_handoff", "transferred_to_human", approval_id)
+    else:
+        _append_trace_lifecycle(store, ctx.tenant_id, approval.operation_id,
+                                "approval_required", "rejected", approval_id)
     store.append_audit(ctx.tenant_id, ctx.user_id, "approval.decide", "approval", approval_id,
                        {"approved": request.approved, "operation_id": op.operation_id,
                         "status": op.status.value}, _now())

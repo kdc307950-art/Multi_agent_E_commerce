@@ -87,13 +87,18 @@ CREATE TABLE IF NOT EXISTS executions (
 CREATE INDEX IF NOT EXISTS idx_executions_tenant_status ON executions (tenant_id, status);
 CREATE TABLE IF NOT EXISTS streams (
     stream_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, user_id TEXT NOT NULL,
-    thread_id TEXT NOT NULL, client_request_id TEXT NOT NULL, mode TEXT NOT NULL,
-    created_at REAL NOT NULL, last_seq INTEGER NOT NULL DEFAULT 0, expires_at REAL NOT NULL
+    thread_id TEXT NOT NULL, trace_id TEXT NOT NULL, operation_id TEXT, approval_id TEXT,
+    client_request_id TEXT NOT NULL, mode TEXT NOT NULL, created_at REAL NOT NULL,
+    last_seq INTEGER NOT NULL DEFAULT 0, expires_at REAL NOT NULL,
+    UNIQUE (tenant_id, trace_id)
 );
+CREATE INDEX IF NOT EXISTS idx_streams_tenant_operation ON streams (tenant_id, operation_id);
 CREATE TABLE IF NOT EXISTS stream_events (
     stream_id TEXT NOT NULL, seq INTEGER NOT NULL, event TEXT NOT NULL, data TEXT NOT NULL,
-    created_at REAL NOT NULL, PRIMARY KEY (stream_id, seq)
+    created_at REAL NOT NULL, tenant_id TEXT NOT NULL, PRIMARY KEY (stream_id, seq)
 );
+CREATE INDEX IF NOT EXISTS idx_stream_events_tenant_seq
+    ON stream_events (tenant_id, stream_id, seq);
 CREATE TABLE IF NOT EXISTS audit (
     audit_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, user_id TEXT NOT NULL,
     action TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL,
@@ -130,6 +135,26 @@ class SqliteStore:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._conn.executescript(_SCHEMA)
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(streams)").fetchall()}
+        for name in ("trace_id", "operation_id", "approval_id"):
+            if name not in columns:
+                self._conn.execute(f"ALTER TABLE streams ADD COLUMN {name} TEXT")
+        event_columns = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(stream_events)").fetchall()
+        }
+        if "tenant_id" not in event_columns:
+            self._conn.execute("ALTER TABLE stream_events ADD COLUMN tenant_id TEXT")
+            self._conn.execute(
+                "UPDATE stream_events SET tenant_id=(SELECT tenant_id FROM streams "
+                "WHERE streams.stream_id=stream_events.stream_id) WHERE tenant_id IS NULL"
+            )
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_streams_tenant_trace ON streams (tenant_id, trace_id)"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stream_events_tenant_seq "
+            "ON stream_events (tenant_id, stream_id, seq)"
+        )
         self._conn.commit()
 
     def close(self) -> None:
@@ -625,10 +650,11 @@ class SqliteStore:
 
     # ---- SSE 流 ----
     def create_stream(self, stream_id: str, tenant_id: str, user_id: str, thread_id: str,
-                      client_request_id: str, mode: str, now: float) -> None:
-        self._q("INSERT INTO streams(stream_id,tenant_id,user_id,thread_id,client_request_id,mode,created_at,last_seq,expires_at) "
-                "VALUES(?,?,?,?,?,?,?,0,?)",
-                (stream_id, tenant_id, user_id, thread_id, client_request_id, mode, now, now + 7 * 86400))
+                      trace_id: str, client_request_id: str, mode: str, now: float) -> None:
+        self._q("INSERT INTO streams(stream_id,tenant_id,user_id,thread_id,trace_id,client_request_id,mode,created_at,last_seq,expires_at) "
+                "VALUES(?,?,?,?,?,?,?,?,0,?)",
+                (stream_id, tenant_id, user_id, thread_id, trace_id, client_request_id,
+                 mode, now, now + 7 * 86400))
 
     def find_stream_by_client(self, tenant_id: str, user_id: str, client_request_id: str) -> Optional[str]:
         row = self._q("SELECT stream_id FROM streams WHERE tenant_id=? AND user_id=? AND client_request_id=?",
@@ -641,19 +667,40 @@ class SqliteStore:
             raise DomainError(ErrorCode.NOT_FOUND, "流不存在", 404)
         return dict(row)
 
+    def get_stream_by_trace(self, tenant_id: str, trace_id: str) -> dict:
+        row = self._q("SELECT * FROM streams WHERE tenant_id=? AND trace_id=?",
+                      (tenant_id, trace_id)).fetchone()
+        if row is None:
+            raise DomainError(ErrorCode.NOT_FOUND, "轨迹不存在", 404)
+        return dict(row)
+
+    def find_stream_by_operation(self, tenant_id: str, operation_id: str) -> Optional[str]:
+        row = self._q("SELECT stream_id FROM streams WHERE tenant_id=? AND operation_id=?",
+                      (tenant_id, operation_id)).fetchone()
+        return row["stream_id"] if row else None
+
+    def bind_stream_operation(self, tenant_id: str, stream_id: str, operation_id: str,
+                              approval_id: str) -> None:
+        stream = self.get_stream(tenant_id, stream_id)
+        if stream.get("operation_id") not in (None, operation_id):
+            raise DomainError(ErrorCode.APPROVAL_BINDING_MISMATCH, "轨迹与操作绑定不一致", 409)
+        self._q("UPDATE streams SET operation_id=?, approval_id=? WHERE tenant_id=? AND stream_id=?",
+                (operation_id, approval_id, tenant_id, stream_id))
+
     def append_event(self, tenant_id: str, stream_id: str, event: str, data: dict, now: float) -> int:
         stream = self.get_stream(tenant_id, stream_id)
         seq = stream["last_seq"] + 1
         # 原子更新 last_seq（读-改-写在同一锁内）。
         self._q("UPDATE streams SET last_seq=? WHERE stream_id=?", (seq, stream_id))
-        self._q("INSERT INTO stream_events(stream_id,seq,event,data,created_at) VALUES(?,?,?,?,?)",
-                (stream_id, seq, event, json.dumps(data, ensure_ascii=False), now))
+        self._q("INSERT INTO stream_events(stream_id,seq,event,data,created_at,tenant_id) "
+                "VALUES(?,?,?,?,?,?)",
+                (stream_id, seq, event, json.dumps(data, ensure_ascii=False), now, tenant_id))
         return seq
 
     def events_after(self, tenant_id: str, stream_id: str, last_seq: int) -> list[dict]:
         self.get_stream(tenant_id, stream_id)
-        rows = self._q("SELECT * FROM stream_events WHERE stream_id=? AND seq>? ORDER BY seq",
-                       (stream_id, last_seq)).fetchall()
+        rows = self._q("SELECT * FROM stream_events WHERE tenant_id=? AND stream_id=? AND seq>? "
+                       "ORDER BY seq", (tenant_id, stream_id, last_seq)).fetchall()
         return [{"stream_id": r["stream_id"], "seq": r["seq"], "event": r["event"],
                  "data": json.loads(r["data"]), "created_at": r["created_at"]} for r in rows]
 

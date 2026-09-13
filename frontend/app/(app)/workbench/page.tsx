@@ -36,8 +36,8 @@ export default function WorkbenchPage() {
   if (!user) return null;
 
   return (
-    <Row gutter={16} style={{ height: "calc(100vh - 80px)" }}>
-      <Col span={5} style={{ height: "100%" }}>
+    <Row gutter={[16, 16]} className="workspace-row" style={{ height: "calc(100vh - 80px)" }}>
+      <Col xs={24} md={5} className="workspace-col" style={{ height: "100%" }}>
         <Card styles={{ body: { height: "100%", overflow: "auto" } }}>
           <SessionListPanel
             token={user.token}
@@ -48,7 +48,7 @@ export default function WorkbenchPage() {
           />
         </Card>
       </Col>
-      <Col span={13} style={{ height: "100%" }}>
+      <Col xs={24} md={13} className="workspace-col" style={{ height: "100%" }}>
         {threadId ? (
           <ConversationPanel token={user.token} threadId={threadId} role={user.role} onApprovalOpen={() => router.push("/approvals")} />
         ) : (
@@ -57,7 +57,7 @@ export default function WorkbenchPage() {
           </Card>
         )}
       </Col>
-      <Col span={6} style={{ height: "100%" }}>
+      <Col xs={24} md={6} className="workspace-col" style={{ height: "100%" }}>
         <ContextPanel token={user.token} threadId={threadId} />
       </Col>
     </Row>

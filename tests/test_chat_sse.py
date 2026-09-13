@@ -54,6 +54,9 @@ def test_policy_query_sse(client):
     # 每帧 id 严格递增
     ids = [int(e["id"]) for e in events]
     assert ids == sorted(ids) and len(set(ids)) == len(ids)
+    trace_ids = {e["data"].get("trace_id") for e in events if e["data"].get("trace_id")}
+    assert len(trace_ids) == 1
+    assert not any("prompt" in str(e["data"]).lower() for e in events)
 
 
 def test_refund_generates_approval_required(client):
@@ -66,8 +69,16 @@ def test_refund_generates_approval_required(client):
     events = parse_sse(resp.text)
     names = [e["event"] for e in events]
     assert "approval_required" in names
+    trace_ids = {e["data"].get("trace_id") for e in events if e["data"].get("trace_id")}
+    assert len(trace_ids) == 1
+    assert all("tenant_id" not in e["data"] and "user_id" not in e["data"] for e in events)
     ar = next(e for e in events if e["event"] == "approval_required")
     assert "approval_id" in ar["data"] and "operation_id" in ar["data"]
+    lifecycle = [e["data"].get("lifecycle") for e in events if e["event"] == "node"]
+    assert "route_started" in lifecycle
+    assert "tool_selected" in lifecycle
+    assert "tool_validated" in lifecycle
+    assert "approval_required" in names
 
 
 def test_start_body_rejects_unknown_tenant_field(client):

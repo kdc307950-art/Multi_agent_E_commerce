@@ -143,15 +143,24 @@ BUSINESS_SCHEMA_SQL: list[str] = [
         tenant_id TEXT NOT NULL REFERENCES tenants(id),
         user_id TEXT NOT NULL,
         thread_id TEXT NOT NULL,
+        trace_id TEXT NOT NULL,
+        operation_id TEXT,
+        approval_id TEXT,
         client_request_id TEXT NOT NULL,
         mode TEXT NOT NULL CHECK (mode IN ('start', 'resume')),
         created_at DOUBLE PRECISION NOT NULL,
         last_seq INTEGER NOT NULL DEFAULT 0,
         expires_at DOUBLE PRECISION NOT NULL,
         FOREIGN KEY (tenant_id, thread_id) REFERENCES sessions (tenant_id, thread_id) ON DELETE CASCADE,
-        UNIQUE (tenant_id, user_id, client_request_id)
+        UNIQUE (tenant_id, user_id, client_request_id),
+        UNIQUE (tenant_id, trace_id)
     )
     """,
+    "ALTER TABLE streams ADD COLUMN IF NOT EXISTS trace_id TEXT",
+    "ALTER TABLE streams ADD COLUMN IF NOT EXISTS operation_id TEXT",
+    "ALTER TABLE streams ADD COLUMN IF NOT EXISTS approval_id TEXT",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_streams_tenant_trace ON streams (tenant_id, trace_id)",
+    "CREATE INDEX IF NOT EXISTS idx_streams_tenant_operation ON streams (tenant_id, operation_id)",
     # stream_events：冗余 tenant_id 便于直接 RLS 过滤（仍以 stream 外键为主约束）
     """
     CREATE TABLE IF NOT EXISTS stream_events (
@@ -164,6 +173,14 @@ BUSINESS_SCHEMA_SQL: list[str] = [
         PRIMARY KEY (stream_id, seq)
     )
     """,
+    "ALTER TABLE stream_events ADD COLUMN IF NOT EXISTS tenant_id TEXT REFERENCES tenants(id)",
+    """
+    UPDATE stream_events AS event
+    SET tenant_id = stream.tenant_id
+    FROM streams AS stream
+    WHERE event.stream_id = stream.stream_id AND event.tenant_id IS NULL
+    """,
+    "ALTER TABLE stream_events ALTER COLUMN tenant_id SET NOT NULL",
     """
     CREATE INDEX IF NOT EXISTS idx_stream_events_tenant_seq
         ON stream_events (tenant_id, stream_id, seq)

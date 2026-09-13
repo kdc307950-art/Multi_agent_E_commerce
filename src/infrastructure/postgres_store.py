@@ -702,13 +702,14 @@ class PostgresStore:
 
     # ---- SSE 流 ----
     def create_stream(self, stream_id: str, tenant_id: str, user_id: str, thread_id: str,
-                      client_request_id: str, mode: str, now: float) -> None:
+                      trace_id: str, client_request_id: str, mode: str, now: float) -> None:
         with self._tx(tenant_id, write=True) as conn:
             conn.execute(
-                text("INSERT INTO streams(stream_id,tenant_id,user_id,thread_id,client_request_id,"
-                     "mode,created_at,last_seq,expires_at) VALUES(:sid,:t,:u,:th,:cr,:m,:ca,0,:ea)"),
+                text("INSERT INTO streams(stream_id,tenant_id,user_id,thread_id,trace_id,client_request_id,"
+                     "mode,created_at,last_seq,expires_at) VALUES(:sid,:t,:u,:th,:tr,:cr,:m,:ca,0,:ea)"),
                 {"sid": stream_id, "t": tenant_id, "u": user_id, "th": thread_id,
-                 "cr": client_request_id, "m": mode, "ca": now, "ea": now + 7 * 86400},
+                 "tr": trace_id, "cr": client_request_id, "m": mode,
+                 "ca": now, "ea": now + 7 * 86400},
             )
 
     def find_stream_by_client(self, tenant_id: str, user_id: str, client_request_id: str) -> Optional[str]:
@@ -728,6 +729,43 @@ class PostgresStore:
         if row is None:
             raise DomainError(ErrorCode.NOT_FOUND, "流不存在", 404)
         return dict(row)
+
+    def get_stream_by_trace(self, tenant_id: str, trace_id: str) -> dict:
+        with self._tx(tenant_id) as conn:
+            row = conn.execute(
+                text("SELECT * FROM streams WHERE tenant_id=:t AND trace_id=:tr"),
+                {"t": tenant_id, "tr": trace_id},
+            ).mappings().first()
+        if row is None:
+            raise DomainError(ErrorCode.NOT_FOUND, "轨迹不存在", 404)
+        return dict(row)
+
+    def find_stream_by_operation(self, tenant_id: str, operation_id: str) -> Optional[str]:
+        with self._tx(tenant_id) as conn:
+            row = conn.execute(
+                text("SELECT stream_id FROM streams WHERE tenant_id=:t AND operation_id=:oid "
+                     "ORDER BY created_at LIMIT 1"),
+                {"t": tenant_id, "oid": operation_id},
+            ).mappings().first()
+        return row["stream_id"] if row else None
+
+    def bind_stream_operation(self, tenant_id: str, stream_id: str, operation_id: str,
+                              approval_id: str) -> None:
+        with self._tx(tenant_id, write=True) as conn:
+            row = conn.execute(
+                text("SELECT operation_id FROM streams WHERE tenant_id=:t AND stream_id=:sid FOR UPDATE"),
+                {"t": tenant_id, "sid": stream_id},
+            ).mappings().first()
+            if row is None:
+                raise DomainError(ErrorCode.NOT_FOUND, "流不存在", 404)
+            if row["operation_id"] not in (None, operation_id):
+                raise DomainError(ErrorCode.APPROVAL_BINDING_MISMATCH,
+                                  "轨迹与操作绑定不一致", 409)
+            conn.execute(
+                text("UPDATE streams SET operation_id=:oid, approval_id=:aid "
+                     "WHERE tenant_id=:t AND stream_id=:sid"),
+                {"oid": operation_id, "aid": approval_id, "t": tenant_id, "sid": stream_id},
+            )
 
     def append_event(self, tenant_id: str, stream_id: str, event: str, data: dict, now: float) -> int:
         with self._tx(tenant_id, write=True) as conn:

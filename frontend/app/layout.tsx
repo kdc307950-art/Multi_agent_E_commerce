@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { ConfigProvider, App as AntApp } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import "antd/dist/reset.css";
+import "./globals.css";
 import { AuthProvider } from "./providers";
 
 export const metadata: Metadata = {

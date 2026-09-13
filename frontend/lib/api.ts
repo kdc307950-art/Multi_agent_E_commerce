@@ -13,24 +13,29 @@ import type {
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
+/** Build one API URL for both JSON requests and SSE streams. */
+export function apiUrl(path: string): string {
+  return `${BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function authHeaders(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 }
 
 export async function createSession(token: string): Promise<{ thread_id: string; session_id: string }> {
-  const r = await fetch(`${BASE}/sessions`, { method: "POST", headers: authHeaders(token) });
+  const r = await fetch(apiUrl("/sessions"), { method: "POST", headers: authHeaders(token) });
   if (!r.ok) throw new Error(`createSession ${r.status}`);
   return r.json();
 }
 
 export async function listSessions(token: string): Promise<SessionRead[]> {
-  const r = await fetch(`${BASE}/sessions`, { headers: authHeaders(token) });
+  const r = await fetch(apiUrl("/sessions"), { headers: authHeaders(token) });
   if (!r.ok) throw new Error(`listSessions ${r.status}`);
   return r.json();
 }
 
 export async function getMessages(token: string, threadId: string): Promise<{ messages: unknown[] }> {
-  const r = await fetch(`${BASE}/sessions/${threadId}/messages`, { headers: authHeaders(token) });
+  const r = await fetch(apiUrl(`/sessions/${threadId}/messages`), { headers: authHeaders(token) });
   if (!r.ok) throw new Error(`getMessages ${r.status}`);
   return r.json();
 }
@@ -40,7 +45,7 @@ export async function chatStart(
   body: ChatStartBody,
   signal?: AbortSignal,
 ): Promise<Response> {
-  return fetch(`${BASE}/chat`, {
+  return fetch(apiUrl("/chat"), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(body),
@@ -53,7 +58,7 @@ export async function chatResume(
   body: ChatResumeBody,
   lastEventId: number,
 ): Promise<Response> {
-  return fetch(`${BASE}/chat`, {
+  return fetch(apiUrl("/chat"), {
     method: "POST",
     headers: { ...authHeaders(token), "Last-Event-ID": String(lastEventId) },
     body: JSON.stringify(body),
@@ -61,7 +66,7 @@ export async function chatResume(
 }
 
 export async function listApprovals(token: string): Promise<ApprovalRead[]> {
-  const r = await fetch(`${BASE}/approvals`, { headers: authHeaders(token) });
+  const r = await fetch(apiUrl("/approvals"), { headers: authHeaders(token) });
   if (!r.ok) throw new Error(`listApprovals ${r.status}`);
   return r.json();
 }
@@ -75,7 +80,7 @@ export async function decideApproval(
   operationId?: string,
   pendingAction?: string,
 ): Promise<{ operation_id: string; status: string; message: string }> {
-  const r = await fetch(`${BASE}/approvals/${approvalId}/decision`, {
+  const r = await fetch(apiUrl(`/approvals/${approvalId}/decision`), {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ approved, confirmation, feedback, operation_id: operationId, pending_action: pendingAction }),
@@ -85,19 +90,19 @@ export async function decideApproval(
 }
 
 export async function getOperation(token: string, operationId: string): Promise<OperationRead> {
-  const r = await fetch(`${BASE}/operations/${operationId}`, { headers: authHeaders(token) });
+  const r = await fetch(apiUrl(`/operations/${operationId}`), { headers: authHeaders(token) });
   if (!r.ok) throw new Error(`getOperation ${r.status}`);
   return r.json();
 }
 
 export async function getOrder(token: string, orderId: string): Promise<OrderRead> {
-  const r = await fetch(`${BASE}/orders/${encodeURIComponent(orderId)}`, { headers: authHeaders(token) });
+  const r = await fetch(apiUrl(`/orders/${encodeURIComponent(orderId)}`), { headers: authHeaders(token) });
   if (!r.ok) throw new Error(`getOrder ${r.status}`);
   return r.json();
 }
 
 export async function listMembers(token: string): Promise<MemberRead[]> {
-  const r = await fetch(`${BASE}/members`, { headers: authHeaders(token) });
+  const r = await fetch(apiUrl("/members"), { headers: authHeaders(token) });
   if (!r.ok) throw new Error(`listMembers ${r.status}`);
   return r.json();
 }

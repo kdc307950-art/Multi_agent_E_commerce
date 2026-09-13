@@ -1,4 +1,4 @@
-# 项目状态说明（一页 · 项目原型 / RC5 生产候选 · 2026-09-07）
+# 项目状态说明（一页 · 项目原型 / RC5 生产候选 · 2026-09-13）
 
 > **角色**：release-manager / prod-go-live 团队 · **任务**：t6 发布候选收口 · **交付**：`release/v1.0.0-rc3` 标签 + 重定稿 `GO_NO_GO.md` / `FINAL_ACCEPTANCE.md` + 生产候选版 `README.md`。
 > **依据**：`evidence/prod-go-live/<role>/`（deploy-engineer/security-auditor/test-runner/observability-engineer/acceptance-engineer）真实证据；git 实况为唯一事实来源。
@@ -7,7 +7,10 @@
 
 ## 一、一句结论
 
-系统定位为**受控运行级、单租户、低并发、人工审批、Shadow 的自托管原型**。当前仍为 RC5 生产候选、正式生产放量 `NO-GO`；本机 Ollama `qwen3:8b` 已完成三条真实 CrewAI 敏感写工具探针 3/3：退款、退货、改址均创建待审批 operation/approval，审批前执行数为 0，审批后 Shadow 执行一次，重复 `client_request_id` 只复用一个 operation。该证据不等于生产写模型批准，qwen3:8b 仍不进入写白名单。
+系统定位为**受控运行级、租户感知、低并发、人工审批、Shadow 的自托管原型**。当前仍为 RC5 生产候选、正式生产放量 `NO-GO`；本机 Ollama `qwen3:8b` 已完成三条真实 CrewAI 敏感写工具探针 3/3：退款、退货、改址均创建待审批 operation/approval，审批前执行数为 0，审批后 Shadow 执行一次，重复 `client_request_id` 只复用一个 operation。该证据不等于生产写模型批准，qwen3:8b 仍不进入写白名单。
+
+### 可观测性增强（2026-09-13）
+当前 SSE 仍遵守冻结的六类协议事件；在事件数据中补充了不透明的请求级 `trace_id`、时间戳和节点耗时，并在前端会话中以固定业务流程展示安全生命周期摘要。新增租户隔离的轨迹查询和只读 SSE 订阅，审批后的 `shadow_started` / `shadow_completed` 会写回原始流并合并到相同 `trace_id`；订阅不会恢复图或再次调用工具。展示范围仅包含路由、CrewAI、工具选择/校验、审批、Shadow 和转人工状态，不展示完整 prompt、模型思维过程、手机号、地址或完整订单数据。该增强属于本地 development/Mock/Shadow 证据，不等于生产级观测平台；目标服务器复验仍列为后续项。
 
 ## 二、发布基线与一致性
 
@@ -23,7 +26,7 @@
 
 | 边界 | 定义 | 关键验证项 |
 |:---:|------|-----------|
-| **边界1 单元测试** | `pytest tests/`（内存/SQLite） | 当前全量实测 **432 passed, 35 skipped**（EXIT=0；本机 `.venv`，2026-09-07）；专项 CrewAI 图级测试 **24 passed, 1 skipped**。跳过项不计入通过。 |
+| **边界1/3 自动化回归** | `pytest tests/`（内存/SQLite + 独立 PostgreSQL） | 当前全量实测 **470 passed, 2 skipped**（EXIT=0；本机 `.venv`，独立干净 PostgreSQL 实例，2026-09-13）。2 项跳过分别为未设置 `RUN_OLLAMA_PROBE=1`、未设置 `RUN_CREWAI_INTEGRATION=1`；跳过项不计入通过。 |
 | **边界2 Mock/沙箱** | preview mock LLM、`sandbox_gateway`、沙箱并发 | N=256 沙箱并发 submit=1/FAIL 收敛 compensated；RpoExceeded 告警真实运行态闭环（合成钻取源）；能力矩阵/写门控 |
 | **边界3 PostgreSQL/RLS 实测** | 真实 PG 数据面 | RLS 动态 B1–B5 全拦；真实 PG 并发 N=256；DR 加密恢复 RTO=0.643s/RPO≤900s 上界；全新库 clean migrate exit 0。★取证多为 preview+一次性独立测试库（非 `after-sales-prod` 专栈实机，生产栈数据面复验＝部署期执行项） |
 | **边界4 真实生产外部依赖** | 真实资产/生产实机 | **全部 BLOCKED-需外部**：受信 CA/域名、真实权重模型端点、真实资金渠道、书面确认真实租户、7 天观察 |

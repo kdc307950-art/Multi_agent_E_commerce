@@ -1,0 +1,25 @@
+html,
+body {
+  margin: 0;
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .workspace-row {
+    height: auto !important;
+    display: block !important;
+  }
+
+  .workspace-col {
+    height: auto !important;
+    margin-bottom: 16px;
+  }
+
+  .workspace-col .ant-card {
+    min-height: 220px;
+  }
+
+  .workspace-col .ant-card-body {
+    min-width: 0;
+  }
+}

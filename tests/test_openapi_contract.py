@@ -27,6 +27,10 @@ def test_openapi_contract_endpoints(app):
     # 操作状态查询
     assert "get" in paths["/api/operations/{operation_id}"]
 
+    # 轨迹查询与只读订阅（按服务端租户上下文和流/会话所有权校验）
+    assert "get" in paths["/api/traces/{trace_id}"]
+    assert "get" in paths["/api/traces/{trace_id}/events"]
+
 
 def test_openapi_chat_body_is_discriminated_union(app):
     o = app.openapi()

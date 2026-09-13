@@ -104,10 +104,10 @@
 |---|---|---|
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
-| 自动化测试 | **全量 pytest：432 passed, 35 skipped**（EXIT=0；本机 `.venv` 实测，2026-09-07）。跳过项不计入通过，主要是未配置 `DATABASE_URL` 的 PostgreSQL 数据面测试。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
+| 自动化测试 | **全量 pytest：470 passed, 2 skipped**（EXIT=0；本机 `.venv`，连接独立干净 PostgreSQL 实例，2026-09-13）。跳过项不计入通过：本轮未启用本机 Ollama 探针和真实 CrewAI + 自托管 LLM 集成开关。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite/PostgreSQL、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
 | 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 LangGraph 同环境运行；本机真实权重 `qwen3:8b` 的 CrewAI 三条写工具探针已通过，但生产级模型评测仍未完成 |
-| 前端 | **容器内构建成功** | `docker build frontend` 成功（Next.js 14.2.5 `Ready`，`/` 返回 200）；本机 npm 受安全策略限制，故在容器内构建验证 |
+| 前端 | **本机构建与浏览器 E2E 通过** | `npm run build` 通过；Playwright 使用系统 Chrome 完成客户发起退款、审批人二次确认、审批后 Shadow 状态回推的前后端联调；桌面和 390px 移动截图已人工检查。 |
 | Docker Compose（preview） | **本机实机验证** | 已 `docker compose up` 启动 postgres:17-alpine/redis:7-alpine/api/frontend/worker 并验证：postgres `SELECT version` 通过、redis `PONG`、api `:8000` openapi 200 + 退款触发 `approval_required`、frontend `:3000` 200 |
 | **独立生产栈 `after-sales-prod`** | **容器级健康已实测/已证实（边界3 专栈实机；一次 bring-up 观测，T7，非当前运行态）** | `PROD_STACK_HEALTH.md`（T7）：compose `migrate` exit 0 + api/worker/frontend/nginx/postgres/redis 全 **healthy**，nginx `8080`/`8843` 暴露，api `/api/healthz`(8843)=200、frontend `/`=200、`/api/metrics`(公网)=404（内网化正确阻断）；受信 TLS 就绪前不可对外暴露 8080/8843 |
 | PostgreSQL/RLS | **已接入并验证（边界3）** | `PostgresStore + TenantScopedCheckpointer + RLS` 已入库并经真实 PG 验收（数据面 12 项通过）；`DEPLOY_BASELINE` §6.2/PROD_STACK_HEALTH：生产栈 RLS FORCE + 租户 policy 生效；`MIGRATE_VERIFY` 全新 prod-like 库 clean migrate exit 0（17 表、复合 FK、无 InvalidForeignKey）|
@@ -118,6 +118,8 @@
 | **自托管 LLM 端点接入** | **Qwen3 8B + CrewAI 三条写工具探针通过；生产白名单未批准** | 退款、退货、改址真实 CrewAI 探针 3/3；每条均审批前 0 执行、审批后 Shadow 1 次、重复请求幂等；LangGraph 图级审批测试为 Mock 路由证据；当前不进入写白名单 |
 
 **结论（项目定位）**：主线保持 `售后请求 → LangGraph 路由 → CrewAI 工具调用 → 租户校验 → 敏感操作审批 → 沙箱执行 → 审计与幂等`。Graphiti/Milvus、真实渠道、多节点高可用和高并发均冻结；可说明“本机 Qwen3:8B 上真实 CrewAI 三条写工具探针通过”，不可宣称生产资金可用或已获写模型白名单批准。
+
+**可观测性口径（2026-09-13）**：SSE 生命周期事件带不透明 `trace_id`、时间戳和节点耗时；前端提供固定业务执行轨迹和安全结构化摘要。新增租户隔离的 `GET /api/traces/{trace_id}` 查询与 `GET /api/traces/{trace_id}/events` 只读 SSE 订阅；订阅只读取持久化事件，不恢复图、不调用工具。审批决定仍走独立 REST 请求，但审批后的 `shadow_started` / `shadow_completed` 会写回创建 operation 的原始流并合并到同一 `trace_id`。展示白名单仅包含路由、CrewAI、工具选择/校验、审批、Shadow 和转人工生命周期，不包含完整 prompt、模型思维过程、手机号、地址或完整订单数据。当前证据属于本地 development + Mock + Shadow 联调，不等于生产观测平台。
 
 **发布冻结**：见 [`PROJECT_FREEZE.md`](PROJECT_FREEZE.md)。推荐先运行 CrewAI 专项测试，再运行 `scripts/live_e2e.py` 完成查询、退款审批、Shadow 执行和操作查询演示。
 

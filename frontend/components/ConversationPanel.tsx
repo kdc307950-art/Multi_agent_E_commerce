@@ -6,17 +6,31 @@ import { Alert, Badge, Button, Card, Input, Space, Tag, Typography } from "antd"
 import { useSseChat } from "@/lib/useSseChat";
 import type { ChatMsg } from "@/lib/useSseChat";
 import type { Role } from "@/lib/types";
+import type { LifecycleStage } from "@/lib/types";
+import ExecutionTracePanel from "./ExecutionTracePanel";
+
+const LIFECYCLE_LABELS: Record<LifecycleStage, string> = {
+  route_started: "路由识别",
+  crewai_started: "CrewAI 已启动",
+  tool_selected: "工具已选择",
+  tool_validated: "工具校验通过",
+  approval_required: "等待人工审批",
+  shadow_started: "沙箱执行开始",
+  shadow_completed: "沙箱执行完成",
+  human_handoff: "已转人工",
+};
 
 const STATUS_MAP: Record<string, { color: string; label: string }> = {
   idle: { color: "default", label: "空闲" },
   connecting: { color: "processing", label: "连接中" },
   streaming: { color: "processing", label: "流式输出" },
+  waiting_approval: { color: "warning", label: "等待审批" },
   done: { color: "success", label: "完成" },
   error: { color: "error", label: "错误" },
   reconnecting: { color: "warning", label: "重连中" },
 };
 
-function Bubble({ msg }: { msg: ChatMsg }) {
+function Bubble({ msg, role }: { msg: ChatMsg; role?: Role }) {
   const isUser = msg.role === "user";
   return (
     <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", marginBottom: 8 }}>
@@ -29,11 +43,24 @@ function Bubble({ msg }: { msg: ChatMsg }) {
         }}
         styles={{ body: { padding: "8px 12px" } }}
       >
-        {!isUser && msg.nodes && msg.nodes.length > 0 && (
+        {!isUser && role && role !== "customer" && msg.nodes && msg.nodes.length > 0 && (
           <div style={{ marginBottom: 4 }}>
             <Tag color="processing" style={{ marginBottom: 4 }}>
               {msg.nodes.join(" → ")}
             </Tag>
+          </div>
+        )}
+        {!isUser && msg.lifecycle && msg.lifecycle.length > 0 && (
+          <ExecutionTracePanel lifecycle={msg.lifecycle} traceId={msg.traceId} role={role} />
+        )}
+        {!isUser && msg.lifecycle && msg.lifecycle.length > 0 && (
+          <div style={{ marginBottom: 8, borderLeft: "2px solid #1677ff", paddingLeft: 8 }}>
+            {msg.lifecycle.map((item) => (
+              <Typography.Text key={item.stage} style={{ display: "block", fontSize: 12 }} type="secondary">
+                {LIFECYCLE_LABELS[item.stage]}
+                {role && role !== "customer" && item.name ? ` · ${item.name}` : ""}
+              </Typography.Text>
+            ))}
           </div>
         )}
         <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
@@ -41,7 +68,11 @@ function Bubble({ msg }: { msg: ChatMsg }) {
         </Typography.Paragraph>
         {msg.approval && (
           <div style={{ marginTop: 4 }}>
-            <Tag color="gold">等待审批</Tag>
+            <Tag color={msg.approval.status === "approved" ? "green" :
+              msg.approval.status === "rejected" ? "red" : "gold"}>
+              {msg.approval.status === "approved" ? "审批通过" :
+                msg.approval.status === "rejected" ? "审批拒绝" : "等待审批"}
+            </Tag>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               审批号 {msg.approval.approval_id.slice(0, 8)}…
             </Typography.Text>
@@ -103,7 +134,7 @@ export default function ConversationPanel({ token, threadId, role, onApprovalOpe
         {messages.length === 0 ? (
           <Typography.Text type="secondary">输入消息开始对话（政策/订单/退款/退货/改址）。</Typography.Text>
         ) : (
-          messages.map((m) => <Bubble key={m.id} msg={m} />)
+          messages.map((m) => <Bubble key={m.id} msg={m} role={role} />)
         )}
       </div>
 

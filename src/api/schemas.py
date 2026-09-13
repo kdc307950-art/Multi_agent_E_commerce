@@ -31,6 +31,42 @@ class ChatResume(BaseModel):
 ChatRequest = Annotated[Union[ChatStart, ChatResume], Field(discriminator="mode")]
 
 
+LifecycleStage = Literal[
+    "route_started",
+    "crewai_started",
+    "tool_selected",
+    "tool_validated",
+    "approval_required",
+    "shadow_started",
+    "shadow_completed",
+    "human_handoff",
+]
+
+
+class TraceEventRead(BaseModel):
+    """面向前端的安全生命周期事件，不包含 prompt、CoT 或业务原始数据。"""
+
+    seq: int
+    stage: LifecycleStage
+    status: Optional[str] = None
+    timestamp: Optional[float] = None
+    duration_ms: Optional[int] = None
+    name: Optional[str] = None
+    tool: Optional[str] = None
+    operation_id: Optional[str] = None
+    approval_id: Optional[str] = None
+
+
+class TraceRead(BaseModel):
+    trace_id: str
+    thread_id: str
+    status: str
+    last_seq: int
+    operation_id: Optional[str] = None
+    approval_id: Optional[str] = None
+    events: list[TraceEventRead]
+
+
 class NewSessionResponse(BaseModel):
     thread_id: str
     session_id: str

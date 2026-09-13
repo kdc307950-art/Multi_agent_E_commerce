@@ -76,3 +76,28 @@ def test_checkpoint_scope_created_atomically_with_session(pg_store):
     # 同一租户同一 thread 只能有一个 scope（UNIQUE(thread_id)），会话重新创建不重复建 scope。
     scope2 = pg_store.get_checkpoint_scope("TENANT-A", "th-atomic")
     assert scope2["thread_id"] == "th-atomic"
+
+
+@pytest.mark.postgres
+def test_trace_stream_binding_and_events_are_rls_scoped(pg_store):
+    _seed(pg_store)
+    pg_store.create_session("TENANT-A", "USER-001", "th-trace", 1000.0, 7)
+    pg_store.create_stream("stream-trace", "TENANT-A", "USER-001", "th-trace",
+                           "trace-pg", "request-pg", "start", 1000.0)
+    key = generate_operation_key(PendingAction.REFUND, "TENANT-A", "ORD-001", "REQ-TRACE")
+    op = pg_store.create_operation("TENANT-A", "th-trace", "ORD-001", PendingAction.REFUND,
+                                   key, 1000.0)
+    approval = pg_store.create_approval("TENANT-A", "th-trace", op.operation_id,
+                                        PendingAction.REFUND, "ORD-001", 100.0, "reason", 1000.0)
+    pg_store.bind_stream_operation("TENANT-A", "stream-trace", op.operation_id,
+                                   approval.approval_id)
+    pg_store.append_event("TENANT-A", "stream-trace", "node",
+                          {"lifecycle": "approval_required"}, 1001.0)
+
+    assert pg_store.get_stream_by_trace("TENANT-A", "trace-pg")["operation_id"] == op.operation_id
+    assert pg_store.find_stream_by_operation("TENANT-A", op.operation_id) == "stream-trace"
+    assert pg_store.events_after("TENANT-A", "stream-trace", 0)[0]["data"]["lifecycle"] == "approval_required"
+    with pytest.raises(DomainError):
+        pg_store.get_stream_by_trace("TENANT-B", "trace-pg")
+    with pytest.raises(DomainError):
+        pg_store.events_after("TENANT-B", "stream-trace", 0)

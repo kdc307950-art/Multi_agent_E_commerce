@@ -7,6 +7,7 @@
 // 断线恢复：唯一的自动网络动作是 resume（mode=resume + stream_id + Last-Event-ID），
 // 它只重放持久化事件，绝不会重新执行图/工具/敏感写。敏感写不因断线/刷新重放。
 import type { ChatResumeBody, ChatStartBody, SseFrame, SseEventType } from "./types";
+import { apiUrl } from "./api";
 
 const FROZEN_EVENTS: ReadonlySet<string> = new Set([
   "accepted",
@@ -62,7 +63,7 @@ export async function consumeSse(
   }
 }
 
-export type ChannelStatus = "idle" | "connecting" | "streaming" | "done" | "error" | "reconnecting";
+export type ChannelStatus = "idle" | "connecting" | "streaming" | "waiting_approval" | "done" | "error" | "reconnecting";
 
 export interface ChannelCallbacks {
   onFrame: (frame: SseFrame) => void;
@@ -84,6 +85,7 @@ export class SseChannel {
   status: ChannelStatus = "idle";
   private controller: AbortController | null = null;
   private cb: ChannelCallbacks;
+  private awaitingApproval = false;
 
   constructor(cb: ChannelCallbacks) {
     this.cb = cb;
@@ -115,8 +117,18 @@ export class SseChannel {
         this.streamId = (frame.data.stream_id as string) || null;
       }
       this.cb.onFrame(frame);
-      if (frame.event === "done" || frame.event === "error") {
-        this.setStatus(frame.event === "done" ? "done" : "error");
+      if (frame.event === "accepted") {
+        this.setStatus("streaming");
+      } else if (frame.event === "approval_required") {
+        this.awaitingApproval = true;
+        this.setStatus("waiting_approval");
+      } else if (frame.event === "done" || frame.event === "error") {
+        if (frame.event === "error") {
+          this.awaitingApproval = false;
+          this.setStatus("error");
+        } else {
+          this.setStatus(this.awaitingApproval ? "waiting_approval" : "done");
+        }
       }
     }
   }
@@ -126,9 +138,10 @@ export class SseChannel {
     this.seen.clear();
     this.lastId = 0;
     this.streamId = null;
+    this.awaitingApproval = false;
     this.setStatus("connecting");
     this.controller = new AbortController();
-    const resp = await fetch(`/api/chat`, {
+    const resp = await fetch(apiUrl("/chat"), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -146,7 +159,7 @@ export class SseChannel {
     this.setStatus("connecting");
     this.controller = new AbortController();
     const body: ChatResumeBody = { mode: "resume", stream_id: streamId };
-    const resp = await fetch(`/api/chat`, {
+    const resp = await fetch(apiUrl("/chat"), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -163,6 +176,7 @@ export class SseChannel {
   cancel() {
     this.controller?.abort();
     this.controller = null;
+    this.awaitingApproval = false;
     this.setStatus("idle");
   }
 }

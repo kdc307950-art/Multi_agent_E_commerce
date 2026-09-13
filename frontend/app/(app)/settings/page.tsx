@@ -53,6 +53,7 @@ export default function SettingsPage() {
         rowKey={(r) => `${r.tenant_id}:${r.user_id}`}
         dataSource={members}
         pagination={false}
+        scroll={{ x: 520 }}
         columns={[
           { title: "用户", dataIndex: "user_id" },
           { title: "tenant", dataIndex: "tenant_id" },

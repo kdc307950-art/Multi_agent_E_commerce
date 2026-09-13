@@ -43,7 +43,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="dark">
+      <Sider
+        collapsible
+        breakpoint="md"
+        collapsedWidth={56}
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        theme="dark"
+      >
         <div style={{ color: "#fff", padding: 16, fontWeight: 600 }}>
           {collapsed ? "售后" : "售后多智能体工单"}
         </div>

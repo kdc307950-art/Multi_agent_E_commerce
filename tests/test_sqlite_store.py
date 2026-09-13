@@ -95,6 +95,28 @@ def test_session_approval_tenant_scope(db):
         db.get_operation("TENANT-B", op.operation_id)
 
 
+def test_trace_stream_binding_and_events_are_tenant_scoped(db):
+    from src.core.types import DomainError
+
+    db.create_session("TENANT-A", "USER-001", "th-trace-a", 1000.0, 7)
+    db.create_stream("stream-a", "TENANT-A", "USER-001", "th-trace-a",
+                     "trace-a", "request-a", "start", 1000.0)
+    op = db.create_operation("TENANT-A", "th-trace-a", "ORD-001", PendingAction.REFUND,
+                             "trace-idem-a", 1000.0)
+    approval = db.create_approval("TENANT-A", "th-trace-a", op.operation_id,
+                                  PendingAction.REFUND, "ORD-001", 100.0, "reason", 1000.0)
+    db.bind_stream_operation("TENANT-A", "stream-a", op.operation_id, approval.approval_id)
+    db.append_event("TENANT-A", "stream-a", "node", {"lifecycle": "approval_required"}, 1001.0)
+
+    assert db.get_stream_by_trace("TENANT-A", "trace-a")["operation_id"] == op.operation_id
+    assert db.find_stream_by_operation("TENANT-A", op.operation_id) == "stream-a"
+    assert db.events_after("TENANT-A", "stream-a", 0)[0]["data"]["lifecycle"] == "approval_required"
+    with pytest.raises(DomainError):
+        db.get_stream_by_trace("TENANT-B", "trace-a")
+    with pytest.raises(DomainError):
+        db.events_after("TENANT-B", "stream-a", 0)
+
+
 def test_suspended_tenant_blocks(db):
     db.set_tenant_status("TENANT-B", TenantStatus.SUSPENDED)
     from src.core.types import DomainError

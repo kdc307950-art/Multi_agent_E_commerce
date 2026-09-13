@@ -80,8 +80,12 @@ class ChatRunner:
             return
 
         stream_id = str(uuid.uuid4())
+        # trace_id 是一次 start 请求的可追溯主键；它只作为受控关联标识传播，
+        # 不包含租户、用户、订单或任何客户端身份信息。
+        trace_id = f"tr_{uuid.uuid4().hex}"
+        request_started_at = _now()
         self.store.create_stream(stream_id, ctx.tenant_id, ctx.user_id, thread_id,
-                                 client_request_id, "start", _now())
+                                 trace_id, client_request_id, "start", request_started_at)
         self.store.touch_session(ctx.tenant_id, thread_id, _now(), session_ttl_days)
         self.store.increment_message_count(ctx.tenant_id, thread_id, 1)
 
@@ -89,10 +93,12 @@ class ChatRunner:
         seq = self.store.append_event(ctx.tenant_id, stream_id, "accepted", {
             "stream_id": stream_id, "thread_id": thread_id,
             "client_request_id": client_request_id, "mode": "start",
-        }, _now())
+            "trace_id": trace_id, "started_at": request_started_at,
+        }, request_started_at)
         yield format_sse_frame(seq, "accepted", {
             "stream_id": stream_id, "thread_id": thread_id,
             "client_request_id": client_request_id, "mode": "start",
+            "trace_id": trace_id, "started_at": request_started_at,
         })
 
         config = {"configurable": {"thread_id": thread_id}}
@@ -112,6 +118,29 @@ class ChatRunner:
         # 用 astream_events 监听节点进度并映射为 node 事件（不透传内部事件）。
         # LangGraph 用 on_chain_start/end + metadata["langgraph_node"] 标记图节点。
         seen_nodes: set[str] = set()
+        lifecycle_seen: set[str] = set()
+        node_started_at: dict[str, float] = {}
+
+        def lifecycle_for_node(node_name: str, phase: str) -> str | None:
+            return {
+                "classify_intent": "route_started",
+                "route_by_intent": "route_started",
+                "crewai_refund_agent": "crewai_started",
+                "process_refund": "tool_selected",
+                "process_return": "tool_selected",
+                "update_return_address": "tool_selected",
+                "query_order": "tool_selected",
+                "track_shipping": "tool_selected",
+            }.get(node_name)
+
+        async def emit_lifecycle(stage: str, extra: dict | None = None, *, force: bool = False):
+            if stage in lifecycle_seen and not force:
+                return
+            lifecycle_seen.add(stage)
+            data = {"lifecycle": stage, "trace_id": trace_id,
+                    "timestamp": _now(), **(extra or {})}
+            seq = self.store.append_event(ctx.tenant_id, stream_id, "node", data, _now())
+            yield format_sse_frame(seq, "node", data)
         try:
             async with _maybe_scope(cp_scope):
                 # 自托管观测：整段图执行包在 Langfuse span 内，metadata 写 tenant/session，
@@ -129,14 +158,34 @@ class ChatRunner:
                         emitted = status_to_emit = None
                         if ev == "on_chain_start" and node not in seen_nodes:
                             seen_nodes.add(node)
+                            node_started_at[node] = _now()
                             emitted, status_to_emit = node, "running"
                         elif ev == "on_chain_end" and node in seen_nodes:
                             seen_nodes.discard(node)
                             emitted, status_to_emit = node, "done"
                         if emitted:
+                            lifecycle = lifecycle_for_node(emitted, status_to_emit)
+                            if lifecycle:
+                                started = node_started_at.get(emitted, _now())
+                                duration_ms = max(0, round((_now() - started) * 1000))
+                                async for frame in emit_lifecycle(
+                                    lifecycle,
+                                    {"name": emitted, "status": status_to_emit,
+                                     "duration_ms": duration_ms},
+                                    force=status_to_emit == "done",
+                                ):
+                                    yield frame
                             seq = self.store.append_event(ctx.tenant_id, stream_id, "node",
-                                                          {"name": emitted, "status": status_to_emit}, _now())
-                            yield format_sse_frame(seq, "node", {"name": emitted, "status": status_to_emit})
+                                                          {"name": emitted, "status": status_to_emit,
+                                                           "trace_id": trace_id,
+                                                           "timestamp": _now(),
+                                                           "duration_ms": (max(0, round((_now() - node_started_at.get(emitted, _now())) * 1000))
+                                                                           if status_to_emit == "done" else None)}, _now())
+                            yield format_sse_frame(seq, "node", {"name": emitted, "status": status_to_emit,
+                                                                   "trace_id": trace_id,
+                                                                   "timestamp": _now(),
+                                                                   "duration_ms": (max(0, round((_now() - node_started_at.get(emitted, _now())) * 1000))
+                                                                                   if status_to_emit == "done" else None)})
         except Exception:  # 图执行可能因中断/超时等结束，不代表失败；中断由 aget_state 反映。
             pass
 
@@ -146,46 +195,72 @@ class ChatRunner:
         values = snapshot.values or {}
         interrupt_data = values.get("__interrupt__")
 
+        # CrewAI may select a tool inside its node; expose only the sanitized
+        # tool identity after the graph snapshot.
+        selected_tool = values.get("tool")
+        if selected_tool:
+            async for frame in emit_lifecycle("tool_selected", {"tool": str(selected_tool), "status": "passed"}):
+                yield frame
+
         pending_action = values.get("pending_action")
         if pending_action and values.get("needs_approval"):
+            async for frame in emit_lifecycle("tool_validated", {"status": "passed"}):
+                yield frame
             approval_id = values.get("approval_id")
             operation_id = values.get("operation_id")
+            self.store.bind_stream_operation(ctx.tenant_id, stream_id, operation_id, approval_id)
             seq = self.store.append_event(ctx.tenant_id, stream_id, "approval_required", {
                 "approval_id": approval_id, "operation_id": operation_id, "status": "pending",
+                "trace_id": trace_id, "timestamp": _now(), "stage": "approval_required",
             }, _now())
             yield format_sse_frame(seq, "approval_required", {
                 "approval_id": approval_id, "operation_id": operation_id, "status": "pending",
+                "trace_id": trace_id, "timestamp": _now(), "stage": "approval_required",
             })
             return
+
+        execution_status = values.get("execution_status")
+        if execution_status:
+            async for frame in emit_lifecycle("shadow_started", {"status": "started"}):
+                yield frame
+            async for frame in emit_lifecycle("shadow_completed", {"status": str(execution_status)}):
+                yield frame
 
         # 正常结束：token + done
         final_response = values.get("final_response")
         if final_response:
             seq = self.store.append_event(ctx.tenant_id, stream_id, "token",
-                                          {"delta": final_response}, _now())
-            yield format_sse_frame(seq, "token", {"delta": final_response})
+                                          {"delta": final_response, "trace_id": trace_id}, _now())
+            yield format_sse_frame(seq, "token", {"delta": final_response, "trace_id": trace_id})
 
         operation_id = values.get("operation_id")
         if values.get("falls_to_error"):
+            async for frame in emit_lifecycle("human_handoff", {"reason": values.get("reason") or "error",
+                                                                  "status": "transferred_to_human"}):
+                yield frame
             seq = self.store.append_event(ctx.tenant_id, stream_id, "error", {
                 "code": values.get("reason") or ErrorCode.INTERNAL_ERROR.value,
                 "message": "当前请求需要人工处理。",
                 "retryable": False,
                 "operation_id": operation_id,
+                "trace_id": trace_id,
             }, _now())
             yield format_sse_frame(seq, "error", {
                 "code": values.get("reason") or ErrorCode.INTERNAL_ERROR.value,
                 "message": "当前请求需要人工处理。",
                 "retryable": False,
                 "operation_id": operation_id,
+                "trace_id": trace_id,
             })
             return
 
         seq = self.store.append_event(ctx.tenant_id, stream_id, "done", {
             "status": "completed", "final_response": final_response, "operation_id": operation_id,
+            "trace_id": trace_id,
         }, _now())
         yield format_sse_frame(seq, "done", {
             "status": "completed", "final_response": final_response, "operation_id": operation_id,
+            "trace_id": trace_id,
         })
 
     async def run_resume(self, ctx, stream_id: str, last_event_id: int) -> AsyncIterator[str]:

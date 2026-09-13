@@ -648,12 +648,13 @@ class MemoryStore:
 
     # ---- SSE 流 ----
     def create_stream(self, stream_id: str, tenant_id: str, user_id: str, thread_id: str,
-                      client_request_id: str, mode: str, now: float) -> None:
+                      trace_id: str, client_request_id: str, mode: str, now: float) -> None:
         if stream_id in self._streams:
             raise DomainError(ErrorCode.FORBIDDEN, "流已存在", 409)
         self._streams[stream_id] = {
             "stream_id": stream_id, "tenant_id": tenant_id, "user_id": user_id,
-            "thread_id": thread_id, "client_request_id": client_request_id,
+            "thread_id": thread_id, "trace_id": trace_id, "operation_id": None,
+            "approval_id": None, "client_request_id": client_request_id,
             "mode": mode, "created_at": now, "last_seq": 0,
             "expires_at": now + 7 * 86400,
         }
@@ -672,6 +673,26 @@ class MemoryStore:
         if rec is None or rec["tenant_id"] != tenant_id:
             raise DomainError(ErrorCode.NOT_FOUND, "流不存在", 404)
         return rec
+
+    def get_stream_by_trace(self, tenant_id: str, trace_id: str) -> dict:
+        for rec in self._streams.values():
+            if rec["tenant_id"] == tenant_id and rec.get("trace_id") == trace_id:
+                return rec
+        raise DomainError(ErrorCode.NOT_FOUND, "轨迹不存在", 404)
+
+    def find_stream_by_operation(self, tenant_id: str, operation_id: str) -> Optional[str]:
+        for rec in self._streams.values():
+            if rec["tenant_id"] == tenant_id and rec.get("operation_id") == operation_id:
+                return rec["stream_id"]
+        return None
+
+    def bind_stream_operation(self, tenant_id: str, stream_id: str, operation_id: str,
+                              approval_id: str) -> None:
+        rec = self.get_stream(tenant_id, stream_id)
+        if rec.get("operation_id") not in (None, operation_id):
+            raise DomainError(ErrorCode.APPROVAL_BINDING_MISMATCH, "轨迹与操作绑定不一致", 409)
+        rec["operation_id"] = operation_id
+        rec["approval_id"] = approval_id
 
     def append_event(self, tenant_id: str, stream_id: str, event: str, data: dict,
                      now: float) -> int:
