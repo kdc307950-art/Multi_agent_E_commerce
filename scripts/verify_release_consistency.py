@@ -7,6 +7,7 @@ services, real tenants, model endpoints, or payment channels.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -56,22 +57,27 @@ def main() -> int:
     rc5_report = (
         ROOT / "evidence/prod-go-live/release-manager/RC5_PROD_READINESS_MASTER_REPORT.md"
     ).read_text(encoding="utf-8")
-    test_report = (ROOT / "evidence/prod-go-live/test-runner/TEST_EVIDENCE_WORKTREE_20260905.md").read_text(
-        encoding="utf-8"
+    acceptance_report = json.loads(
+        (ROOT / "evidence/acceptance_report.json").read_text(encoding="utf-8")
     )
 
     required = {
         "Go/No-Go current tag": args.tag,
         "RC5 report tag": args.tag,
-        "RC5 test count": "416 passed",
-        "RC5 skipped count": "35 skipped",
     }
     for label, needle in required.items():
         source = go_no_go if label.startswith("Go/") else rc5_report
-        if label.startswith("RC5 test") or label.startswith("RC5 skipped"):
-            source = test_report
         if needle not in source:
             fail(f"{label} missing: {needle}")
+
+    pytest_result = acceptance_report.get("pytest", {})
+    if acceptance_report.get("exit_code") != 0:
+        fail("acceptance report exit_code is not 0")
+    if pytest_result.get("passed") != 438 or pytest_result.get("skipped") != 36:
+        fail(
+            "acceptance report count mismatch: expected 438 passed / 36 skipped, "
+            f"got {pytest_result.get('passed')} passed / {pytest_result.get('skipped')} skipped"
+        )
 
     stale_rc4 = re.search(r"当前发布锚点[^\n]*rc4-candidate", go_no_go, re.IGNORECASE)
     if stale_rc4:

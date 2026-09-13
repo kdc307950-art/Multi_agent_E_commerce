@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           if git tag --list 'interview-freeze-2026-09-05' | grep -q .; then
-            python scripts/verify_release_consistency.py --tag interview-freeze-2026-09-05
+            python scripts/verify_release_consistency.py
           else
             echo "Freeze tag not present in this checkout; documentation check deferred."
           fi
