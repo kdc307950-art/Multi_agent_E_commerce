@@ -11,7 +11,7 @@ import types
 import pytest
 
 from src.retrieval.base import RetrievalError
-from src.retrieval.milvus import _build_embedder
+from src.retrieval.milvus import MilvusRetriever, _build_embedder
 
 
 def test_hash_provider_keeps_deterministic_zero_dependency_shape():
@@ -79,3 +79,26 @@ def test_local_provider_encodes_only_from_local_model(monkeypatch, tmp_path):
     )
     embed = _build_embedder("local_sentence_transformer", 3, str(model_dir))
     assert embed("测试") == [0.1, 0.2, 0.3]
+
+
+def test_milvus_binds_database_and_applies_tenant_filter(monkeypatch, tmp_path):
+    class FakeClient:
+        init = None
+        def __init__(self, **kwargs):
+            FakeClient.init = kwargs
+        def create_collection(self, **kwargs):
+            self.collection = kwargs
+        def upsert(self, **kwargs):
+            self.rows = kwargs["data"]
+        def search(self, **kwargs):
+            FakeClient.search = kwargs
+            return [[]]
+
+    monkeypatch.setattr("src.retrieval.milvus._PYMILVUS_AVAILABLE", True)
+    monkeypatch.setattr("src.retrieval.milvus.MilvusClient", FakeClient)
+    retriever = MilvusRetriever(
+        str(tmp_path / "milvus.db"), "after_sales", "policy", source_docs=[], dim=8
+    )
+    assert FakeClient.init == {"uri": str(tmp_path / "milvus.db"), "db_name": "after_sales"}
+    assert retriever.search("TENANT-A", "退货") == []
+    assert 'tenant_id == "TENANT-A"' in FakeClient.search["filter"]

@@ -71,14 +71,14 @@
 |---|---|---|
 | 编排 | LangGraph 主控 + CrewAI 子智能体 | 状态机 + 角色化协作 |
 | **检查点/会话** | 开发 `SqliteSaver` · 生产 **`TenantScopedCheckpointer + AsyncPostgresSaver`** | 会话归属和 checkpoint 的 invoke、恢复、历史、清理、审批续跑均校验租户作用域（见④/⑧） |
-| 知识/RAG | Agentic RAG（自纠正 + 幻觉检测） | 政策问答；Milvus 为**可选实验性后端**（当前冻结，默认确定性检索） |
+| 知识/RAG | Agentic RAG（自纠正 + 幻觉检测） | 政策问答；Milvus Lite + 本地 BGE 已完成真实本机验收，默认仍使用 keyword 以保持零依赖；证据见 `evidence/MILVUS_BGE_LOCAL_ACCEPTANCE.md` |
 | **长期记忆** | 设计目标为 Graphiti + Neo4j；当前提供**可选 SQLite 时序事实存储原型** | 客观事实、validity window、来源溯源；Graphiti/Neo4j 运行链路仍未接入 |
 | **工具调用** | 工具契约按 **MCP 设计原则**组织；当前运行时用 **CrewAI/OpenAI-compatible tool calling**（MCP 协议接入为后续阶段） | 业务 7 + 平台 2，共 9 个工具能力 |
 | **生产架构** | **React + Next.js + FastAPI 网关 + 前后端分离 + 多副本数据面** | 本地 Compose、租赁服务器预发布、生产 HA 分层演进 |
 | **容错** | **能力矩阵 + 写操作幂等 + 人工审批 + 降级阶梯** | 安全优先，不做错资金操作 |
 | 可观测 | 自托管 **Langfuse**（链路+指标） | 数据在项目方控制边界内流转；可选 Prometheus/Grafana |
 | 部署 | Next.js 自建 runtime（SSR）或静态导出（Nginx）；后端容器（开发 Compose / 线上预发布 / 生产 K8s 或等效编排） | 前后端独立；租赁 IaaS 可承载项目自管环境 |
-| 数据存储 | PostgreSQL + Neo4j + Milvus | standalone 仅用于开发/预发布；生产目标使用 HA 数据服务拓扑 |
+| 数据存储 | PostgreSQL + Neo4j + Milvus | PostgreSQL 为业务权威数据；Milvus Lite/Standalone 仅承载租户隔离知识向量；Graphiti/Neo4j 仍未接入 |
 | **租户隔离** | `TenantContext` + PostgreSQL RLS/等效 guard + 数据面命名空间 | API、会话、审批、RAG、图谱、缓存、队列和审计全链路带 `tenant_id` |
 
 > **一句话架构**：LangGraph 编排 · Graphiti+Neo4j 给长期记忆 · TenantScopedCheckpointer+Postgres 给会话 · MCP 设计原则组织工具契约 · TenantContext+数据面隔离给多租户 · 能力矩阵+审批/安全回退给写操作 · 三层部署与验收记录给生产证据。
@@ -104,7 +104,7 @@
 |---|---|---|
 | 后端骨架 | **本地可运行** | `src/` 提供 FastAPI + LangGraph 主图 + 内存存储 + Mock LLM；`uvicorn src.main:app` 可启动 |
 | 最小闭环 | **本地已验证**（边界1） | 认证上下文 → 创建会话 → `POST /api/chat` SSE → 意图/审批分流 → 审批决定 → 操作状态查询 → 审计 |
-| 自动化测试 | **全量 pytest：470 passed, 2 skipped**（EXIT=0；本机 `.venv`，连接独立干净 PostgreSQL 实例，2026-09-13）。跳过项不计入通过：本轮未启用本机 Ollama 探针和真实 CrewAI + 自托管 LLM 集成开关。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite/PostgreSQL、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
+| 自动化测试 | **全量 pytest：470 passed, 2 skipped**（EXIT=0；本机 `.venv`，连接独立干净 PostgreSQL 实例，2026-09-13）。Milvus Lite 专项真实集成测试已通过；跳过项不计入通过：本轮未启用本机 Ollama 探针和真实 CrewAI + 自托管 LLM 集成开关。 | `pytest tests/` 或 `scripts/run_acceptance.py`：认证/租户隔离、SSE 契约、审批幂等、RAG 状态隔离、跨租户拒绝、SQLite/PostgreSQL、Milvus Lite、沙箱和 CrewAI 安全链路；报告输出至 `evidence/acceptance_report.json`。 |
 | 存储后端 | **memory + sqlite + postgres 三后端**（边界1/3） | 默认 memory；`STORAGE_BACKEND=sqlite` 本地持久化已验证；`PostgresStore + TenantScopedCheckpointer + RLS` **已接入并通过真实 PG 验收**（`PG_ACCEPTANCE_REPORT.md` 数据面 12 项通过、RLS FORCE 验证） |
 | 依赖验收 | **部分完成** | `langgraph==1.2.11` / `langgraph-checkpoint-postgres==3.1.2` 已导入+最小运行验收；`crewai==0.152.0`+`litellm==1.74.3` 已在 `.accept-crewai-venv` 与 LangGraph 同环境运行；本机真实权重 `qwen3:8b` 的 CrewAI 三条写工具探针已通过，但生产级模型评测仍未完成 |
 | 前端 | **本机构建与浏览器 E2E 通过** | `npm run build` 通过；Playwright 使用系统 Chrome 完成客户发起退款、审批人二次确认、审批后 Shadow 状态回推的前后端联调；桌面和 390px 移动截图已人工检查。 |
@@ -117,7 +117,7 @@
 | 能力矩阵 / CrewAI 子智能体 | **真实本机权重工具闭环已验证；生产写白名单未批准** | `crewai==0.152.0` 独立环境 + 本机 Qwen3:8B 已验证工具实际执行、审批前置和异常 fail-closed；探针使用显式测试隔离覆盖，`evidence/llm_candidate_eval.json` 仍为 `whitelist_eligible: false`，生产评测待完成 |
 | **自托管 LLM 端点接入** | **Qwen3 8B + CrewAI 三条写工具探针通过；生产白名单未批准** | 退款、退货、改址真实 CrewAI 探针 3/3；每条均审批前 0 执行、审批后 Shadow 1 次、重复请求幂等；LangGraph 图级审批测试为 Mock 路由证据；当前不进入写白名单 |
 
-**结论（项目定位）**：主线保持 `售后请求 → LangGraph 路由 → CrewAI 工具调用 → 租户校验 → 敏感操作审批 → 沙箱执行 → 审计与幂等`。Graphiti/Milvus、真实渠道、多节点高可用和高并发均冻结；可说明“本机 Qwen3:8B 上真实 CrewAI 三条写工具探针通过”，不可宣称生产资金可用或已获写模型白名单批准。
+**结论（项目定位）**：主线保持 `售后请求 → LangGraph 路由 → CrewAI 工具调用 → 租户校验 → 敏感操作审批 → 沙箱执行 → 审计与幂等`。Graphiti/Neo4j、真实渠道、多节点高可用和高并发继续冻结；Milvus Lite 已解除冻结，仅作为租户隔离的本地 RAG 向量后端；可说明“本机 Qwen3:8B 上真实 CrewAI 三条写工具探针通过”，不可宣称生产资金可用或已获写模型白名单批准。
 
 **可观测性口径（2026-09-13）**：SSE 生命周期事件带不透明 `trace_id`、时间戳和节点耗时；前端提供固定业务执行轨迹和安全结构化摘要。新增租户隔离的 `GET /api/traces/{trace_id}` 查询与 `GET /api/traces/{trace_id}/events` 只读 SSE 订阅；订阅只读取持久化事件，不恢复图、不调用工具。审批决定仍走独立 REST 请求，但审批后的 `shadow_started` / `shadow_completed` 会写回创建 operation 的原始流并合并到同一 `trace_id`。展示白名单仅包含路由、CrewAI、工具选择/校验、审批、Shadow 和转人工生命周期，不包含完整 prompt、模型思维过程、手机号、地址或完整订单数据。当前证据属于本地 development + Mock + Shadow 联调，不等于生产观测平台。
 

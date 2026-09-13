@@ -41,7 +41,13 @@ pytest==9.1.1
 pytest-asyncio==1.4.0
 httpx==0.28.1
 
+# ---- 可选 RAG/Milvus 依赖 ----
+# Milvus 已解除冻结，但不进入默认锁定集：依赖体积大且 torch 需匹配本机 CUDA/CPU。
+# 完全自托管本地 Milvus Lite：pip install pymilvus==3.0.1 milvus-lite==3.2.1；语义模型再安装 sentence-transformers。
+# 模型目录必须预先下载，运行时离线加载；配置 MILVUS_EMBEDDING_PROVIDER=local_sentence_transformer
+# 和 MILVUS_EMBEDDING_DIM=512。未安装时显式选择 milvus 会 fail-closed，默认 keyword 不受影响。
+
 # ---- 注意 ----
 # 不引入公有 SaaS / WebSocket / GraphQL / BullMQ / Streamlit。
-# 长期记忆 graphiti/neo4j、向量 milvus、自托管 langfuse、deepeval 属后续阶段，未在本环境安装验收。
+# 长期记忆 graphiti/neo4j、自托管 langfuse、deepeval 属后续阶段；Milvus 已解除冻结，作为可选本地 RAG 后端，需单独验收。
 # 完整传递依赖锁定见 requirements-lock.txt（Dockerfile 以其为准）。

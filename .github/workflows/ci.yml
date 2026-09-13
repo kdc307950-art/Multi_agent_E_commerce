@@ -69,3 +69,21 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/after_sales_ci
         run: python -m pytest -q -m postgres
 
+  milvus-lite:
+    name: Milvus Lite tenant isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+      - name: Install backend and local Milvus dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-lock.txt
+          pip install pymilvus==3.0.1 milvus-lite==3.2.1
+      - name: Run Milvus Lite isolation tests
+        run: python -m pytest -q tests/test_milvus_lite_integration.py tests/test_milvus_embedding_provider.py

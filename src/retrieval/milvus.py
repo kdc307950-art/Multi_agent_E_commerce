@@ -126,10 +126,42 @@ class MilvusRetriever(Retriever):
         self._dim = dim
         self._top_k = top_k
         self._embed = _build_embedder(embedding_provider, dim, embedding_model_path)
-        self._client = MilvusClient(uri=uri)
-        self._client.create_collection(
-            collection_name=collection, dimension=dim, metric_type="COSINE",
-        )
+        # 显式绑定 database，避免同一 URI 下使用默认库造成数据串联。
+        try:
+            self._client = MilvusClient(uri=uri, db_name=db_name)
+            # Milvus Lite 只有默认数据库；Standalone 可显式创建业务库。
+            if db_name and hasattr(self._client, "list_databases"):
+                try:
+                    databases = set(self._client.list_databases())
+                    if db_name not in databases and hasattr(self._client, "create_database"):
+                        self._client.create_database(db_name)
+                        self._client.use_database(db_name)
+                except Exception as exc:
+                    # 本地 .db Lite 不支持自定义 database，回到其唯一默认库；
+                    # tenant_id 过滤仍是强制隔离边界。Standalone 其它错误继续抛出。
+                    if str(uri).lower().endswith((".db", ".db3")):
+                        self._client = MilvusClient(uri=uri)
+                    else:
+                        raise RetrievalError(f"Milvus database 初始化失败: {db_name}") from exc
+        except TypeError:  # 兼容旧版 pymilvus
+            self._client = MilvusClient(uri=uri)
+        except Exception as exc:
+            # Milvus Lite 在打开新文件时尚未创建自定义数据库；使用默认库运行。
+            if db_name and str(uri).lower().endswith((".db", ".db3")) and "database" in str(exc).lower():
+                self._client = MilvusClient(uri=uri)
+            else:
+                raise RetrievalError("Milvus 连接或数据库初始化失败") from exc
+        try:
+            exists = bool(self._client.has_collection(collection_name=collection)) \
+                if hasattr(self._client, "has_collection") else False
+            if not exists:
+                self._client.create_collection(
+                    collection_name=collection, dimension=dim, metric_type="COSINE",
+                )
+            if hasattr(self._client, "load_collection"):
+                self._client.load_collection(collection_name=collection)
+        except Exception as exc:
+            raise RetrievalError(f"Milvus collection 初始化失败: {collection}") from exc
         # 幂等写入文档（同 tenant+doc_id 不重复）。
         self._seed(source_docs or [])
 
@@ -139,10 +171,12 @@ class MilvusRetriever(Retriever):
         for d in docs:
             if not d.get("tenant_id") or not d.get("doc_id"):
                 raise RetrievalError("Milvus seed 文档缺少 tenant_id/doc_id")
-            row_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{d['tenant_id']}:{d['doc_id']}"))
-            if row_id in seen:
+            row_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, f"{d['tenant_id']}:{d['doc_id']}")
+            # Milvus Lite 快捷 schema 默认要求 int64 主键；业务 doc_id 仍单独保留。
+            row_id = row_uuid.int % (2**63 - 1)
+            if str(row_id) in seen:
                 continue
-            seen.add(row_id)
+            seen.add(str(row_id))
             text = f"{d.get('title', '')} {d.get('content', '')}".strip()
             rows.append({
                 "id": row_id,

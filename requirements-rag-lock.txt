@@ -1,0 +1,8 @@
+# Optional fully self-hosted local RAG profile; install separately from requirements-lock.txt.
+pymilvus==3.0.1
+milvus-lite==3.2.1
+faiss-cpu==1.15.0
+pyarrow==25.0.1
+sentence-transformers==6.0.1
+torch==2.14.0
+transformers==5.16.1

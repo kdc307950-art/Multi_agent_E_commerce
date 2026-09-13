@@ -354,7 +354,11 @@ def test_milvus_retriever_requires_pymilvus_or_fails_closed():
             MilvusRetriever("./data/x.db", "d", "c")
     else:
         r = MilvusRetriever("./data/milvus_test.db", "d", "c", source_docs=[])
-        assert r.search("TENANT-A", "退货") == []
+        try:
+            assert r.search("TENANT-A", "退货") == []
+        finally:
+            if hasattr(r._client, "close"):
+                r._client.close()
 
 
 # ---------------------------------------------------------------------------

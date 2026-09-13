@@ -12,6 +12,11 @@
 ### 可观测性增强（2026-09-13）
 当前 SSE 仍遵守冻结的六类协议事件；在事件数据中补充了不透明的请求级 `trace_id`、时间戳和节点耗时，并在前端会话中以固定业务流程展示安全生命周期摘要。新增租户隔离的轨迹查询和只读 SSE 订阅，审批后的 `shadow_started` / `shadow_completed` 会写回原始流并合并到相同 `trace_id`；订阅不会恢复图或再次调用工具。展示范围仅包含路由、CrewAI、工具选择/校验、审批、Shadow 和转人工状态，不展示完整 prompt、模型思维过程、手机号、地址或完整订单数据。该增强属于本地 development/Mock/Shadow 证据，不等于生产级观测平台；目标服务器复验仍列为后续项。
 
+### Milvus / BGE 本地语义检索（2026-09-13）
+Milvus Lite 与本地 `BAAI/bge-small-zh-v1.5` 已完成本机真实验收：512 维 embedding、同租户召回、跨租户过滤和缺失租户拒绝均通过。证据见 `evidence/MILVUS_BGE_LOCAL_ACCEPTANCE.md`。Milvus 仍是可选 RAG 后端，生产 Compose 默认使用 keyword；未完成 Milvus 集群高可用、备份恢复和目标服务器复验。
+
+GitHub Actions 已增加 `Milvus Lite tenant isolation` 任务，验证本地向量库依赖、同/跨租户过滤和重复初始化；CI 不下载大型 BGE 权重，真实 BGE 维度与语义召回证据仍以本机离线验收报告为准。
+
 ## 二、发布基线与一致性
 
 | 项 | 值 |
